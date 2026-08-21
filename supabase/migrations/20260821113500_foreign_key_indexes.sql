@@ -1,0 +1,9 @@
+create index if not exists admin_config_changes_changed_by_idx on public.admin_config_changes(changed_by);
+create index if not exists admin_config_changes_key_idx on public.admin_config_changes(key);
+create index if not exists admin_maintenance_initiated_by_idx on public.admin_maintenance(initiated_by);
+create index if not exists admin_security_events_user_id_idx on public.admin_security_events(user_id);
+create index if not exists ai_runs_job_id_idx on public.ai_runs(job_id);
+create index if not exists ai_runs_lead_id_idx on public.ai_runs(lead_id);
+create index if not exists lead_duplicates_lead_id_idx on public.lead_duplicates(lead_id);
+create index if not exists lead_matches_matched_lead_id_idx on public.lead_matches(matched_lead_id);
+create index if not exists source_connections_source_id_idx on public.source_connections(source_id);
