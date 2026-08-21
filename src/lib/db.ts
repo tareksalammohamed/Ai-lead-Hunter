@@ -14,7 +14,9 @@ export const STORES = [
   'admin_ai_providers', 'admin_ai_model_router', 'admin_search_providers', 'admin_source_connectors',
   'admin_research_engine', 'admin_scoring', 'admin_intent_categories', 'admin_phone_rules',
   'admin_duplicate_engine', 'admin_feature_flags', 'admin_health_checks', 'admin_security_events',
-  'admin_notifications', 'admin_maintenance',
+  'admin_notifications', 'admin_maintenance', 'ai_task_checkpoints', 'ai_provider_health',
+  'ai_model_health', 'ai_routing_rules', 'ai_routing_events', 'ai_context_snapshots',
+  'ai_circuit_breakers',
 ] as const;
 
 export type StoreName = (typeof STORES)[number];

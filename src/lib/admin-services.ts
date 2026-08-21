@@ -13,6 +13,7 @@ import type {
 import { dbGetAll, dbPut, dbDelete, generateId, nowISO } from './db';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { getRoles, createRole as createRoleRBAC, updateRole as updateRoleRBAC, deleteRole as deleteRoleRBAC, isSuperAdmin, hasPermission, initRoles, ALL_PERMISSIONS } from './rbac';
+import { refreshOpenRouterModelPool } from './openrouter-model-discovery';
 
 // ============================================================
 // SEED DATA
@@ -844,4 +845,54 @@ export async function getAdminDashboardStats(): Promise<{
     searchRequests: 0,
     systemErrors: allJobs.filter((j) => j.status === 'failed').length,
   };
+}
+
+// ============================================================
+// SMART AI ROUTER & RELIABILITY CENTER
+// ============================================================
+
+export async function getAIProviderHealth(): Promise<import('@/types').AIProviderHealth[]> {
+  return dbGetAll<import('@/types').AIProviderHealth>('ai_provider_health');
+}
+
+export async function getAIModelHealth(): Promise<import('@/types').AIModelHealth[]> {
+  return dbGetAll<import('@/types').AIModelHealth>('ai_model_health');
+}
+
+export async function getAIRoutingEvents(limit = 100): Promise<import('@/types').AIRoutingEvent[]> {
+  const events = await dbGetAll<import('@/types').AIRoutingEvent>('ai_routing_events');
+  return events.sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, limit);
+}
+
+export async function getAIRoutingRules(): Promise<import('@/types').AIRoutingRule[]> {
+  return dbGetAll<import('@/types').AIRoutingRule>('ai_routing_rules');
+}
+
+export async function updateAIRoutingRule(actorId: string, task: string, updates: Partial<import('@/types').AIRoutingRule>): Promise<void> {
+  await requirePermission(actorId, 'manage_ai');
+  const all = await dbGetAll<import('@/types').AIRoutingRule>('ai_routing_rules');
+  const existing = all.find((r) => r.task === task);
+  const value = { ...(existing ?? { id: generateId(), task, provider_order: [], model_order: [], required_capabilities: [], enabled: true, updated_at: nowISO() }), ...updates, task, updated_at: nowISO() };
+  await dbPut('ai_routing_rules', value);
+  await logAdminAction(actorId, 'ai_routing_rule.update', 'ai_routing_rule', task, updates);
+}
+
+export async function refreshOpenRouterModels(actorId: string): Promise<{ count: number; free_models: number; models: unknown[] }> {
+  await requirePermission(actorId, 'manage_ai');
+  const data = await refreshOpenRouterModelPool();
+  await logAdminAction(actorId, 'ai_models.refresh', 'ai_model_health', undefined, { count: data?.count, free_models: data?.free_models });
+  return data;
+}
+
+export async function simulateAIRouterFailure(actorId: string, simulation: import('@/types').AIOrchestratorRequest['simulate']): Promise<import('@/types').AIOrchestratorResponse> {
+  await requirePermission(actorId, 'manage_ai');
+  const { simulateFailover } = await import('./ai-orchestrator');
+  const result = await simulateFailover(simulation);
+  await logAdminAction(actorId, 'ai_failover.simulate', 'ai_router', undefined, { simulation, success: result.success, events: result.events });
+  return result;
+}
+
+export async function getAIReliabilityStats() {
+  const { getReliabilitySnapshot } = await import('./ai-orchestrator');
+  return getReliabilitySnapshot();
 }

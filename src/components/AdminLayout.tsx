@@ -7,7 +7,7 @@ import { type ReactNode, useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import {
-  Shield, LayoutDashboard, Users, KeyRound, Settings, Cpu, Brain,
+  Shield, ShieldCheck, LayoutDashboard, Users, KeyRound, Settings, Cpu, Brain,
   Search, Plug, Activity, Star, Phone, Copy, Gauge, Flag,
   Bell, HeartPulse, ScrollText, Wrench, Moon, Sun, Menu, X,
   ChevronLeft, AlertTriangle, CheckCircle2, ArrowRight,
@@ -15,7 +15,7 @@ import {
 
 export type AdminPageKey =
   | 'dashboard' | 'users' | 'roles' | 'settings' | 'ai_providers'
-  | 'ai_models' | 'search_providers' | 'source_connectors' | 'research_engine'
+  | 'ai_models' | 'ai_reliability' | 'search_providers' | 'source_connectors' | 'research_engine'
   | 'lead_scoring' | 'phone_rules' | 'duplicate_engine' | 'usage_limits'
   | 'feature_flags' | 'security' | 'notifications' | 'health'
   | 'audit_logs' | 'maintenance';
@@ -34,6 +34,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'settings', label: 'إعدادات النظام', icon: Settings, group: 'التكوين' },
   { key: 'ai_providers', label: 'مزودو AI', icon: Cpu, group: 'التكوين' },
   { key: 'ai_models', label: 'توجيه النماذج', icon: Brain, group: 'التكوين' },
+  { key: 'ai_reliability', label: 'مركز اعتمادية AI', icon: ShieldCheck, group: 'المراقبة' },
   { key: 'search_providers', label: 'مزودو البحث', icon: Search, group: 'التكوين' },
   { key: 'source_connectors', label: 'موصلات المصادر', icon: Plug, group: 'التكوين' },
   { key: 'research_engine', label: 'محرك البحث', icon: Activity, group: 'المحركات' },

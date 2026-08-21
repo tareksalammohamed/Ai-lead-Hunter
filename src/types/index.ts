@@ -6,7 +6,7 @@ export type CampaignStatus = 'draft' | 'active' | 'paused' | 'completed' | 'arch
 
 export type SourceCode = 'google_maps' | 'web_search' | 'facebook' | 'linkedin' | 'website';
 
-export type JobStatus = 'queued' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
+export type JobStatus = 'queued' | 'running' | 'recovering' | 'paused' | 'completed' | 'failed' | 'cancelled';
 
 export type JobStepName =
   | 'planning'
@@ -222,6 +222,11 @@ export interface ResearchJob {
   duplicates_found: number;
   current_step: JobStepName;
   error?: string;
+  recovery_status?: 'idle' | 'recovering' | 'recovered' | 'failed';
+  active_task_id?: string;
+  last_checkpoint_id?: string;
+  context_snapshot?: Record<string, unknown>;
+  resume_count?: number;
   started_at?: string;
   completed_at?: string;
   created_at: string;
@@ -236,6 +241,13 @@ export interface ResearchJobStep {
   records_processed: number;
   records_failed: number;
   error?: string;
+  provider?: string;
+  model?: string;
+  ai_task_id?: string;
+  checkpoint_id?: string;
+  input_state?: Record<string, unknown>;
+  output_state?: Record<string, unknown>;
+  next_step?: string;
   started_at?: string;
   completed_at?: string;
   created_at: string;
@@ -399,6 +411,14 @@ export interface AIRun {
   latency_ms: number;
   success: boolean;
   error?: string;
+  attempt?: number;
+  error_type?: AIErrorType;
+  fallback_from?: string;
+  fallback_to?: string;
+  checkpoint_id?: string;
+  idempotency_key?: string;
+  started_at?: string;
+  completed_at?: string;
   created_at: string;
 }
 
@@ -516,10 +536,17 @@ export interface AdminAIProvider {
   timeout_ms: number;
   retry_count: number;
   updated_at: string;
+  openrouter_auto_mode?: boolean;
+  model_fallback_chain?: string[];
+  capabilities?: string[];
+  cooldown_ms?: number;
+  daily_limit?: number;
+  routing_mode?: AIRoutingMode;
+  api_key_encrypted?: string;
 }
 
 export interface AIModelRouter {
-  task: 'research_planning' | 'data_extraction' | 'intent_detection' | 'lead_scoring' | 'entity_matching' | 'summarization';
+  task: AITaskType | 'research_planning' | 'data_extraction' | 'intent_detection' | 'lead_scoring' | 'entity_matching' | 'summarization';
   primary_model: string;
   secondary_model: string;
   fallback_model: string;
@@ -656,4 +683,204 @@ export interface MaintenanceOperation {
   completed_at?: string;
   result?: string;
   initiated_by: string;
+}
+
+// ============================================================
+// Smart AI Router & Failover
+// ============================================================
+
+export type AIErrorType =
+  | 'RATE_LIMIT' | 'TIMEOUT' | 'NETWORK_ERROR' | 'PROVIDER_DOWN'
+  | 'MODEL_UNAVAILABLE' | 'MODEL_DEPRECATED' | 'CONTEXT_TOO_LONG'
+  | 'INVALID_REQUEST' | 'AUTH_ERROR' | 'QUOTA_EXCEEDED'
+  | 'CONTENT_POLICY' | 'UNKNOWN';
+
+export type AIRoutingMode = 'SMART_AUTO' | 'AUTOMATIC' | 'MANUAL' | 'FREE_FIRST' | 'RELIABILITY_FIRST' | 'COST_FIRST' | 'SPEED_FIRST';
+export type AIProviderHealthStatus = 'HEALTHY' | 'DEGRADED' | 'FAILING' | 'OFFLINE' | 'DISABLED';
+export type AIModelHealthStatus = 'ACTIVE' | 'COOLDOWN' | 'DISABLED' | 'DEPRECATED';
+export type AITaskType =
+  | 'research_planning' | 'query_generation' | 'data_extraction' | 'intent_detection'
+  | 'lead_scoring' | 'entity_matching' | 'deduplication' | 'summarization'
+  | 'lead_qualification' | 'agent_reasoning';
+export type AgentState = 'PLANNING' | 'SEARCHING' | 'EXTRACTING' | 'NORMALIZING' | 'VERIFYING' | 'MATCHING' | 'DEDUPLICATING' | 'SCORING' | 'QUALIFYING' | 'SAVING' | 'COMPLETED';
+
+export interface CanonicalTaskState {
+  mission: string;
+  objective: string;
+  research_plan?: ResearchPlan;
+  current_step: AgentState | string;
+  extracted_records: RawRecord[];
+  normalized_records: Partial<Lead>[];
+  candidate_leads: Partial<Lead>[];
+  decisions: Record<string, unknown>[];
+  constraints: Record<string, unknown>;
+  remaining_work: string[];
+  user_instructions?: string;
+  ids?: Record<string, string>;
+}
+
+export interface AIRequestMessage { role: 'system' | 'user' | 'assistant'; content: string; }
+export interface AIUsage { input_tokens: number; output_tokens: number; total_tokens?: number; estimated_cost_usd?: number; }
+
+export interface AIOrchestratorRequest {
+  task: AITaskType | string;
+  task_id: string;
+  job_id?: string;
+  lead_id?: string;
+  messages: AIRequestMessage[];
+  input_state?: CanonicalTaskState;
+  required_capabilities?: string[];
+  structured_schema?: Record<string, unknown>;
+  max_tokens?: number;
+  temperature?: number;
+  idempotency_key?: string;
+  simulate?: 'openrouter_failure' | 'gemini_failure' | 'timeout' | 'context_too_long';
+}
+
+export interface AIOrchestratorResponse {
+  success: boolean;
+  content: string;
+  structured?: Record<string, unknown>;
+  provider: AIProviderCode | string;
+  model: string;
+  latency_ms: number;
+  usage: AIUsage;
+  error?: string;
+  error_type?: AIErrorType;
+  checkpoint_id?: string;
+  task_id: string;
+  current_step?: string;
+  next_step?: string;
+  recovered?: boolean;
+  events?: string[];
+}
+
+export interface AITaskCheckpoint {
+  id: string;
+  job_id?: string;
+  task_id: string;
+  step: string;
+  provider?: string;
+  model?: string;
+  status: 'saved' | 'current' | 'completed' | 'failed';
+  input_context: Record<string, unknown>;
+  working_state: CanonicalTaskState;
+  output?: string;
+  structured_result?: Record<string, unknown>;
+  token_usage: AIUsage;
+  idempotency_key?: string;
+  created_at: string;
+}
+
+export interface AIProviderHealth {
+  id: string;
+  provider: AIProviderCode | string;
+  status: AIProviderHealthStatus;
+  success_rate: number;
+  failure_rate: number;
+  average_latency_ms: number;
+  consecutive_failures: number;
+  recent_errors: { type: AIErrorType; message: string; at: string }[];
+  last_success_at?: string;
+  last_failure_at?: string;
+  requests_count: number;
+  updated_at: string;
+}
+
+export interface AIModelHealth {
+  id: string;
+  provider: string;
+  model: string;
+  status: AIModelHealthStatus;
+  success_rate: number;
+  failure_rate: number;
+  average_latency_ms: number;
+  requests_count: number;
+  fallback_count: number;
+  last_error?: string;
+  last_used_at?: string;
+  last_failure_at?: string;
+  cooldown_until?: string;
+  capabilities: string[];
+  context_length: number;
+  is_free: boolean;
+  updated_at: string;
+}
+
+export interface AIRoutingRule {
+  id: string;
+  task: AITaskType | string;
+  provider_order: string[];
+  model_order: string[];
+  required_capabilities: string[];
+  enabled: boolean;
+  updated_at: string;
+}
+
+export interface AIRoutingEvent {
+  id: string;
+  task_id: string;
+  job_id?: string;
+  task: string;
+  event_type: 'attempt' | 'failure' | 'checkpoint_saved' | 'provider_switched' | 'context_compressed' | 'context_restored' | 'completed' | 'recovery_failed';
+  from_provider?: string;
+  from_model?: string;
+  to_provider?: string;
+  to_model?: string;
+  error_type?: AIErrorType;
+  message: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AICircuitBreaker {
+  id: string;
+  provider: string;
+  model?: string;
+  state: 'CLOSED' | 'OPEN' | 'HALF_OPEN';
+  failure_threshold: number;
+  consecutive_failures: number;
+  cooldown_ms: number;
+  opened_at?: string;
+  next_probe_at?: string;
+  updated_at: string;
+}
+
+export interface AIReliabilitySettings {
+  routing_mode: AIRoutingMode;
+  smart_routing: boolean;
+  openrouter_enabled: boolean;
+  openrouter_free_enabled: boolean;
+  openrouter_auto_mode: boolean;
+  dynamic_free_model_discovery: boolean;
+  global_failover: boolean;
+  context_preservation: boolean;
+  checkpointing: boolean;
+  auto_retry: boolean;
+  circuit_breaker: boolean;
+  model_health: boolean;
+  provider_health: boolean;
+  cost_control: boolean;
+  max_retries: number;
+  retry_delay_ms: number;
+  max_cooldown_ms: number;
+  circuit_failure_threshold: number;
+  daily_ai_budget_usd: number;
+  monthly_ai_budget_usd: number;
+  stop_paid_fallback_on_budget: boolean;
+}
+
+export interface OpenRouterModel {
+  id: string;
+  name: string;
+  canonical_slug?: string;
+  context_length: number;
+  pricing: Record<string, string>;
+  architecture: Record<string, unknown>;
+  supported_parameters: string[];
+  top_provider?: Record<string, unknown>;
+  expiration_date?: string | null;
+  is_free: boolean;
+  provider_name?: string;
+  availability?: string;
 }

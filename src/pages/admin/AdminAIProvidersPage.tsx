@@ -75,7 +75,7 @@ export function AdminAIProvidersPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+                          <div className="grid grid-cols-2 gap-3">
               <Input label="API Key (محمي)" type="password" placeholder={p.api_key_masked || 'أدخل المفتاح'} value={e.api_key_masked ?? ''} onChange={(ev) => update(p.id, 'api_key_masked', ev.target.value)} />
               <Input label="Base URL" value={e.base_url ?? p.base_url ?? ''} onChange={(ev) => update(p.id, 'base_url', ev.target.value)} placeholder="https://..." />
               <Input label="النموذج الافتراضي" value={e.default_model ?? p.default_model} onChange={(ev) => update(p.id, 'default_model', ev.target.value)} />
@@ -86,6 +86,10 @@ export function AdminAIProvidersPage() {
               <div className="flex items-end">
                 <Toggle checked={e.fallback_enabled ?? p.fallback_enabled} onChange={(v) => update(p.id, 'fallback_enabled', v)} label="تفعيل البديل" />
               </div>
+              {p.provider === 'openrouter' && <>
+                <div className="flex items-end"><Toggle checked={e.openrouter_auto_mode ?? p.openrouter_auto_mode ?? true} onChange={(v) => update(p.id, 'openrouter_auto_mode', v)} label="OpenRouter Auto Mode (openrouter/free)" /></div>
+                <Input label="Model Fallback Chain (مفصولة بفاصلة)" value={(e.model_fallback_chain ?? p.model_fallback_chain ?? []).join(', ')} onChange={(ev) => update(p.id, 'model_fallback_chain', ev.target.value.split(',').map((s) => s.trim()).filter(Boolean))} placeholder="model-a, model-b, model-c" />
+              </>}
             </div>
 
             <div className="flex gap-2 justify-end mt-4">

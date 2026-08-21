@@ -21,6 +21,7 @@ import { AdminUsersPage } from '@/pages/admin/AdminUsersPage';
 import { AdminRolesPage } from '@/pages/admin/AdminRolesPage';
 import { AdminSettingsPage } from '@/pages/admin/AdminSettingsPage';
 import { AdminAIProvidersPage, AdminAIModelsPage } from '@/pages/admin/AdminAIProvidersPage';
+import { AdminAIReliabilityPage } from '@/pages/admin/AdminAIReliabilityPage';
 import { AdminSearchProvidersPage, AdminSourceConnectorsPage } from '@/pages/admin/AdminSearchSourcesPage';
 import { AdminResearchEnginePage, AdminLeadScoringPage, AdminPhoneRulesPage, AdminDuplicateEnginePage } from '@/pages/admin/AdminEnginesPage';
 import { AdminUsageLimitsPage, AdminFeatureFlagsPage } from '@/pages/admin/AdminUsageFlagsPage';
@@ -95,6 +96,7 @@ function AppContent() {
         {adminPage === 'settings' && <AdminSettingsPage />}
         {adminPage === 'ai_providers' && <AdminAIProvidersPage />}
         {adminPage === 'ai_models' && <AdminAIModelsPage />}
+        {adminPage === 'ai_reliability' && <AdminAIReliabilityPage />}
         {adminPage === 'search_providers' && <AdminSearchProvidersPage />}
         {adminPage === 'source_connectors' && <AdminSourceConnectorsPage />}
         {adminPage === 'research_engine' && <AdminResearchEnginePage />}

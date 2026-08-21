@@ -121,6 +121,8 @@ export function AgentPage({ selectedCampaignId, onNavigate }: { selectedCampaign
     try {
       await executeJob(user.id, job.id, (updated) => {
         setActiveJob({ ...updated });
+        if (updated.status === 'recovering' || updated.recovery_status === 'recovering') addLog('تم حفظ نقطة استعادة وتحويل المهمة إلى نموذج بديل...', 'warning');
+        if (updated.recovery_status === 'recovered') addLog('تمت استعادة السياق واستئناف المهمة من آخر خطوة.', 'success');
         addLog(`المرحلة: ${STEP_LABELS[updated.current_step]} — ${updated.records_processed} سجل`, 'info');
       });
       addLog(`اكتمل البحث! تم إنشاء ${job.leads_created} عميل`, 'success');
@@ -128,8 +130,12 @@ export function AgentPage({ selectedCampaignId, onNavigate }: { selectedCampaign
       const j = await getJobs(user.id);
       setJobs(j);
     } catch (err: any) {
-      addLog(`فشل البحث: ${err.message}`, 'error');
-      toast(`فشل البحث: ${err.message}`, 'error');
+      const message = String(err?.message ?? '');
+      const friendly = message.includes('429') || message.toLowerCase().includes('timeout') || message.toLowerCase().includes('provider')
+        ? 'تعذر مزود الذكاء الاصطناعي الحالي؛ تم حفظ حالة المهمة ويمكن استئنافها من آخر نقطة.'
+        : `تعذر إكمال البحث: ${message}`;
+      addLog(friendly, 'error');
+      toast(friendly, 'error');
     }
   };
 

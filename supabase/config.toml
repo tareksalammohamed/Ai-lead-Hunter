@@ -2,3 +2,9 @@ project_id = "hbpjkomkbtpiciioqggn"
 
 [functions.admin-user-management]
 verify_jwt = true
+
+[functions.ai-orchestrator]
+verify_jwt = true
+
+[functions.openrouter-model-discovery]
+verify_jwt = true

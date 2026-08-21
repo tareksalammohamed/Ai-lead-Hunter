@@ -35,6 +35,7 @@ import {
   type StoreName,
 } from './db';
 import { scoreLead, extractLeadFromRaw, detectIntent, checkDuplicate, resolveEntities } from './ai-engine';
+import { orchestrateAI, saveCheckpoint } from './ai-orchestrator';
 import { getConnector, generateSearchQueries } from './connectors';
 
 // ---- Sources (static seed) ----
@@ -449,6 +450,38 @@ export async function createJob(userId: string, campaign: Campaign): Promise<Res
   return job;
 }
 
+async function saveJobCheckpoint(userId: string, job: ResearchJob, step: JobStepName, provider = 'local', model = 'rule-based') {
+  try {
+    const checkpoint = await saveCheckpoint({
+      job_id: job.id,
+      task_id: `${job.id}:${step}`,
+      step,
+      provider,
+      model,
+      status: 'saved',
+      input_context: { campaign_id: job.campaign_id, current_step: job.current_step },
+      working_state: {
+        mission: job.research_plan.target,
+        objective: job.research_plan.target,
+        research_plan: job.research_plan,
+        current_step: step.toUpperCase(),
+        extracted_records: [],
+        normalized_records: [],
+        candidate_leads: [],
+        decisions: [],
+        constraints: { user_id: userId },
+        remaining_work: JOB_STEPS.slice(JOB_STEPS.indexOf(step) + 1),
+        ids: { job_id: job.id, campaign_id: job.campaign_id },
+      },
+      token_usage: { input_tokens: 0, output_tokens: 0 },
+      idempotency_key: `${job.id}:${step}`,
+    });
+    return checkpoint;
+  } catch {
+    return null;
+  }
+}
+
 export async function executeJob(
   userId: string,
   jobId: string,
@@ -478,54 +511,70 @@ export async function executeJob(
   };
 
   try {
-    // PLANNING
-    await updateStep('planning', { status: 'completed', completed_at: nowISO() });
+    // PLANNING — pass through the central orchestrator; local plan remains the deterministic fallback.
+    let planningProvider = 'local'; let planningModel = 'rule-based';
+    try {
+      const planning = await orchestrateAI({
+        task: 'research_planning', task_id: `${jobId}:planning`, job_id: jobId,
+        messages: [{ role: 'user', content: `راجع خطة البحث التالية وحافظ على الهدف: ${JSON.stringify(job.research_plan)}` }],
+        input_state: { mission: job.research_plan.target, objective: job.research_plan.target, research_plan: job.research_plan, current_step: 'PLANNING', extracted_records: [], normalized_records: [], candidate_leads: [], decisions: [], constraints: {}, remaining_work: JOB_STEPS.slice(1) },
+        structured_schema: { type: 'object', properties: { status: { type: 'string' }, next_step: { type: 'string' } } },
+        idempotency_key: `${jobId}:planning`,
+      });
+      planningProvider = planning.provider; planningModel = planning.model;
+    } catch { /* Local rule-based plan is the final safe fallback. */ }
+    await updateStep('planning', { status: 'completed', completed_at: nowISO(), provider: planningProvider, model: planningModel });
+    await saveJobCheckpoint(userId, job, 'planning', planningProvider, planningModel);
     await updateJobState({ current_step: 'discovery' });
 
     // DISCOVERY
     await updateStep('discovery', { status: 'running', started_at: nowISO() });
     const plan = job.research_plan;
     await updateStep('discovery', { status: 'completed', completed_at: nowISO(), records_processed: plan.search_queries.length });
+    await saveJobCheckpoint(userId, job, 'discovery');
     await updateJobState({ current_step: 'searching', total_records: plan.search_queries.length });
 
     // SEARCHING + EXTRACTING
     await updateStep('searching', { status: 'running', started_at: nowISO() });
     await updateStep('extracting', { status: 'running', started_at: nowISO() });
 
-    const allRawRecords: Omit<RawRecord, 'id' | 'created_at'>[] = [];
+    const persistedRawRecords = await getRawRecords(jobId);
+    const allRawRecords: Omit<RawRecord, 'id' | 'created_at'>[] = persistedRawRecords.length > 0
+      ? persistedRawRecords.map((record) => ({ ...record, id: undefined as never, created_at: undefined as never }))
+      : [];
     let searchErrors = 0;
 
-    for (const sq of plan.search_queries) {
-      const connector = getConnector(sq.source);
-      if (!connector) { searchErrors++; continue; }
-      const conn = connections.find((c) => {
-        const src = SEED_SOURCES.find((s) => s.id === c.source_id);
-        return src?.code === sq.source;
-      });
-      const credentials = conn?.credentials ?? {};
-      const result = await connector.search(sq, credentials);
-      if (result.error) {
-        searchErrors++;
-        await logAudit(userId, 'connector.error', 'search_query', sq.id, { source: sq.source, error: result.error });
-      }
-      for (const rr of result.rawRecords) {
-        allRawRecords.push({ ...rr, job_id: jobId });
+    // Resume contract: if raw records were already saved, skip external search entirely.
+    if (persistedRawRecords.length === 0) {
+      for (const sq of plan.search_queries) {
+        const connector = getConnector(sq.source);
+        if (!connector) { searchErrors++; continue; }
+        const conn = connections.find((c) => {
+          const src = SEED_SOURCES.find((s) => s.id === c.source_id);
+          return src?.code === sq.source;
+        });
+        const credentials = conn?.credentials ?? {};
+        const result = await connector.search(sq, credentials);
+        if (result.error) {
+          searchErrors++;
+          await logAudit(userId, 'connector.error', 'search_query', sq.id, { source: sq.source, error: result.error });
+        }
+        for (const rr of result.rawRecords) allRawRecords.push({ ...rr, job_id: jobId });
       }
     }
 
-    await updateStep('searching', { status: 'completed', completed_at: nowISO(), records_processed: allRawRecords.length, records_failed: searchErrors });
-    await updateStep('extracting', { status: 'completed', completed_at: nowISO(), records_processed: allRawRecords.length });
-    await updateJobState({ current_step: 'normalizing', total_records: allRawRecords.length, records_failed: searchErrors });
+    await updateStep('searching', { status: 'completed', completed_at: nowISO(), records_processed: persistedRawRecords.length || allRawRecords.length, records_failed: searchErrors });
+    await updateStep('extracting', { status: 'completed', completed_at: nowISO(), records_processed: persistedRawRecords.length || allRawRecords.length });
+    await updateJobState({ current_step: 'normalizing', total_records: persistedRawRecords.length || allRawRecords.length, records_failed: searchErrors });
 
     // NORMALIZING
     await updateStep('normalizing', { status: 'running', started_at: nowISO() });
-    const rawRecords: RawRecord[] = allRawRecords.map((rr) => ({
-      ...rr,
-      id: generateId(),
-      created_at: nowISO(),
-    })) as RawRecord[];
-    await dbBulkPut('raw_records', rawRecords);
+    const rawRecords: RawRecord[] = persistedRawRecords.length > 0
+      ? persistedRawRecords
+      : allRawRecords.map((rr) => ({ ...rr, id: generateId(), created_at: nowISO() })) as RawRecord[];
+    if (persistedRawRecords.length === 0) await dbBulkPut('raw_records', rawRecords);
     await updateStep('normalizing', { status: 'completed', completed_at: nowISO(), records_processed: rawRecords.length });
+    await saveJobCheckpoint(userId, job, 'normalizing');
     await updateJobState({ current_step: 'verifying', records_processed: rawRecords.length });
 
     // VERIFYING + MATCHING + DEDUPLICATING + SCORING + QUALIFYING + SAVING
@@ -544,17 +593,11 @@ export async function executeJob(
       }
       if (extracted.verification_status === 'verified') verified++;
 
-      // Deduplication
+      // Deduplication — do not create a child row with an empty lead_id.
       const dupResult = checkDuplicate(extracted, existingLeads.concat(leadsToCreate), settings.duplicate_rules);
       if (dupResult.isDuplicate) {
         duplicates++;
-        if (dupResult.duplicateOfId) {
-          const dup: LeadDuplicate = {
-            id: generateId(), lead_id: '', duplicate_lead_id: dupResult.duplicateOfId,
-            rule: dupResult.rule, created_at: nowISO(),
-          };
-          await dbPut('lead_duplicates', dup);
-        }
+        await logAudit(userId, 'lead.duplicate', 'lead', dupResult.duplicateOfId, { rule: dupResult.rule, job_id: jobId });
         continue;
       }
 
@@ -571,7 +614,20 @@ export async function executeJob(
       const scoreResult = scoreLead(extracted, settings.scoring_config, 1);
 
       // Intent
-      const intent = detectIntent(`${raw.data.content ?? ''} ${extracted.business ?? ''}`);
+      let intent = detectIntent(`${raw.data.content ?? ''} ${extracted.business ?? ''}`);
+      try {
+        const aiIntent = await orchestrateAI({
+          task: 'intent_detection', task_id: `${jobId}:intent:${raw.id}`, job_id: jobId,
+          messages: [{ role: 'user', content: `حلل نية العميل وأعد JSON: ${String(raw.data.content ?? '')}` }],
+          input_state: { mission: campaign.objective, objective: campaign.objective, current_step: 'QUALIFYING', extracted_records: [raw], normalized_records: [extracted], candidate_leads: [], decisions: [], constraints: {}, remaining_work: ['SCORING', 'SAVING'] },
+          structured_schema: { type: 'object', properties: { intent: { type: 'string' }, intent_score: { type: 'number' }, confidence: { type: 'number' }, potential: { type: 'string' } } },
+          idempotency_key: `${jobId}:intent:${raw.id}`,
+        });
+        const structured = aiIntent.structured;
+        if (aiIntent.success && structured && typeof structured.intent === 'string') {
+          intent = { ...intent, intent: structured.intent as typeof intent.intent, intent_score: Number(structured.intent_score ?? intent.intent_score), confidence: Number(structured.confidence ?? intent.confidence), potential: String(structured.potential ?? intent.potential), reason: 'تم تحليل النية عبر Smart AI Router' };
+        }
+      } catch { /* deterministic intent detection remains the fallback */ }
 
       if (scoreResult.score < campaign.min_score) continue;
       if (leadsToCreate.length >= campaign.max_leads) break;
@@ -612,6 +668,8 @@ export async function executeJob(
 
       leadsToCreate.push(lead);
       existingLeads.push(lead);
+      // Persist each lead before the next AI operation so a timeout/failure resumes without losing partial results.
+      await dbPut('leads', lead);
 
       // Save lead source
       const leadSource: LeadSource = {
@@ -668,6 +726,7 @@ export async function executeJob(
     }
 
     await dbBulkPut('leads', leadsToCreate);
+    await saveJobCheckpoint(userId, job, 'saving');
 
     // Complete remaining steps
     await updateStep('verifying', { status: 'completed', completed_at: nowISO(), records_processed: verified });
@@ -692,7 +751,9 @@ export async function executeJob(
 
     return job;
   } catch (err: any) {
-    await updateJobState({ status: 'failed', error: err.message });
+    await updateJobState({ status: 'recovering', recovery_status: 'recovering', error: err.message });
+    await saveJobCheckpoint(userId, job, job.current_step);
+    await updateJobState({ status: 'failed', recovery_status: 'failed', error: err.message });
     await logAudit(userId, 'job.failed', 'research_job', jobId, { error: err.message });
     throw err;
   }
