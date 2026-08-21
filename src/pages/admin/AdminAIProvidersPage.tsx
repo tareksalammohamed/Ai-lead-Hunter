@@ -9,7 +9,7 @@ import {
   getAdminAIProviders, updateAdminAIProvider, testAdminAIProvider,
   getAIModelRouter, updateAIModelRouter, removeAdminAIProviderKey,
 } from '@/lib/admin-services';
-import type { AdminAIProvider, AIModelRouter } from '@/types';
+import type { AdminAIProvider, AIModelRouter, AIProviderCode } from '@/types';
 import { Card, Button, Input, Toggle, Select, Skeleton, Badge } from '@/components/ui';
 import { Cpu, Brain, Save, Zap, CheckCircle2, XCircle, ArrowDown } from 'lucide-react';
 
@@ -21,7 +21,21 @@ export function AdminAIProvidersPage() {
   const [editing, setEditing] = useState<Record<string, any>>({});
   const [testing, setTesting] = useState<string | null>(null);
 
-  const loadData = async () => { setLoading(true); setProviders(await getAdminAIProviders()); setLoading(false); };
+  const loadData = async () => {
+    setLoading(true);
+    const loaded = await getAdminAIProviders();
+    const catalog = [
+      { provider: 'openrouter' as AIProviderCode, enabled: true, priority: 1, default_model: 'openrouter/free', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, openrouter_auto_mode: true, model_fallback_chain: [] },
+      { provider: 'grok' as AIProviderCode, enabled: false, priority: 2, default_model: 'grok-4.6', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, base_url: 'https://api.x.ai/v1', model_fallback_chain: ['grok-4.6-latest'] },
+      { provider: 'groq' as AIProviderCode, enabled: false, priority: 3, default_model: 'llama-3.3-70b-versatile', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, base_url: 'https://api.groq.com/openai/v1', model_fallback_chain: ['openai/gpt-oss-120b'] },
+      { provider: 'cerebras' as AIProviderCode, enabled: false, priority: 4, default_model: 'llama-3.3-70b', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, base_url: 'https://api.cerebras.ai/v1', model_fallback_chain: ['qwen-3-32b'] },
+      { provider: 'mistral' as AIProviderCode, enabled: false, priority: 5, default_model: 'mistral-small-latest', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, base_url: 'https://api.mistral.ai/v1', model_fallback_chain: ['mistral-large-latest'] },
+    ];
+    const byProvider = new Map<AIProviderCode, AdminAIProvider>(loaded.map((item) => [item.provider, item]));
+    const normalized = catalog.map((defaults) => ({ id: `catalog-${defaults.provider}`, ...defaults, api_key_masked: '', has_key: false, ...byProvider.get(defaults.provider) } as AdminAIProvider));
+    setProviders([...normalized, ...loaded.filter((item) => !catalog.some((entry) => entry.provider === item.provider))].sort((a, b) => a.priority - b.priority));
+    setLoading(false);
+  };
   useEffect(() => { loadData(); }, []);
 
   const handleSave = async (id: string) => {
@@ -86,7 +100,13 @@ export function AdminAIProvidersPage() {
                           <div className="grid grid-cols-2 gap-3">
               <Input label="مفتاح API — يُحفظ في Supabase فقط" type="password" placeholder={p.has_key ? 'مفتاح محفوظ — اكتب قيمة جديدة للاستبدال' : 'الصق مفتاح API هنا'} value={e.api_key_input ?? ''} onChange={(ev) => update(p.id, 'api_key_input', ev.target.value)} />
               <Input label="Base URL" value={e.base_url ?? p.base_url ?? ''} onChange={(ev) => update(p.id, 'base_url', ev.target.value)} placeholder="https://..." />
-              <Input label="النموذج الافتراضي" value={e.default_model ?? p.default_model} onChange={(ev) => update(p.id, 'default_model', ev.target.value)} />
+              {p.provider !== 'openrouter' ? (
+                <Input label="النموذج الافتراضي" value={e.default_model ?? p.default_model} onChange={(ev) => update(p.id, 'default_model', ev.target.value)} />
+              ) : (
+                <div className="rounded-xl p-3 text-sm" style={{ background: 'rgb(var(--accent-soft))', color: 'rgb(var(--text-secondary))' }}>
+                  <strong>OpenRouter Free Router</strong><br />لا تختار نموذجاً يدوياً؛ سيستخدم التطبيق <code>openrouter/free</code> ويبدّل تلقائياً بين النماذج المجانية المتاحة.
+                </div>
+              )}
               <Input label="الأولوية" type="number" value={e.priority ?? p.priority} onChange={(ev) => update(p.id, 'priority', Number(ev.target.value))} />
               <Input label="الحد الأقصى للطلبات" type="number" value={e.max_requests ?? p.max_requests} onChange={(ev) => update(p.id, 'max_requests', Number(ev.target.value))} />
               <Input label="المهلة (ms)" type="number" value={e.timeout_ms ?? p.timeout_ms} onChange={(ev) => update(p.id, 'timeout_ms', Number(ev.target.value))} />
@@ -127,71 +147,39 @@ const TASK_LABELS: Record<string, string> = {
 };
 
 export function AdminAIModelsPage() {
-  const { user } = useAuth();
-  const { toast } = useToast();
   const [router, setRouter] = useState<AIModelRouter[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState<Record<string, any>>({});
 
-  const loadData = async () => { setLoading(true); setRouter(await getAIModelRouter()); setLoading(false); };
-  useEffect(() => { loadData(); }, []);
-
-  const handleSave = async (task: string) => {
-    if (!user) return;
-    const updates = editing[task];
-    if (!updates) return;
-    await updateAIModelRouter(user.id, task, updates);
-    toast('تم حفظ التوجيه', 'success');
-    setEditing((p) => { const c = { ...p }; delete c[task]; return c; });
-    loadData();
-  };
+  useEffect(() => {
+    getAIModelRouter().then(setRouter).finally(() => setLoading(false));
+  }, []);
 
   if (loading) return <div className="p-6"><Skeleton className="h-64" /></div>;
 
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
       <div>
-        <h1 className="text-2xl font-bold" style={{ color: 'rgb(var(--text-primary))' }}>توجيه نماذج AI</h1>
-        <p className="text-sm mt-1" style={{ color: 'rgb(var(--text-muted))' }}>تحديد النموذج لكل مهمة مع تسلسل بديل</p>
+        <h1 className="text-2xl font-bold" style={{ color: 'rgb(var(--text-primary))' }}>التوجيه التلقائي للذكاء الاصطناعي</h1>
+        <p className="text-sm mt-1" style={{ color: 'rgb(var(--text-muted))' }}>لا حاجة لاختيار نموذج OpenRouter يدوياً</p>
       </div>
-
-      <div className="space-y-3">
-        {router.map((r) => {
-          const e = editing[r.task] ?? {};
-          return (
-            <Card key={r.task} className="p-5">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'rgb(var(--accent-soft))' }}>
-                  <Brain className="w-5 h-5" style={{ color: 'rgb(var(--accent))' }} />
-                </div>
-                <h3 className="font-bold" style={{ color: 'rgb(var(--text-primary))' }}>{TASK_LABELS[r.task]}</h3>
+      <Card className="p-5">
+        <h3 className="font-bold" style={{ color: 'rgb(var(--text-primary))' }}>Smart AI Router فعال</h3>
+        <p className="text-sm mt-2" style={{ color: 'rgb(var(--text-secondary))' }}>
+          يستخدم OpenRouter مفتاحاً واحداً مع <code>openrouter/free</code>، ويختار OpenRouter تلقائياً النموذج المجاني المتاح ويبدّل عند الفشل. لإضافة Grok وGroq وCerebras وMistral، انتقل إلى صفحة «مزودو AI» وأدخل مفاتيحهم.
+        </p>
+      </Card>
+      <div className="grid gap-3 md:grid-cols-2">
+        {router.map((r) => (
+          <Card key={r.task} className="p-4">
+            <div className="flex items-center gap-3">
+              <Brain className="w-5 h-5" style={{ color: 'rgb(var(--accent))' }} />
+              <div>
+                <h3 className="font-bold" style={{ color: 'rgb(var(--text-primary))' }}>{TASK_LABELS[r.task] ?? r.task}</h3>
+                <p className="text-xs mt-1" style={{ color: 'rgb(var(--text-muted))' }}>التوجيه: OpenRouter Free Router تلقائي</p>
               </div>
-
-              <div className="space-y-2">
-                <div>
-                  <label className="label">النموذج الأساسي</label>
-                  <input className="input" value={e.primary_model ?? r.primary_model} onChange={(ev) => setEditing((p) => ({ ...p, [r.task]: { ...p[r.task], primary_model: ev.target.value } }))} />
-                </div>
-                <div className="flex items-center gap-2 justify-center"><ArrowDown className="w-4 h-4" style={{ color: 'rgb(var(--text-muted))' }} /><span className="text-xs" style={{ color: 'rgb(var(--text-muted))' }}>عند الفشل</span></div>
-                <div>
-                  <label className="label">النموذج البديل</label>
-                  <input className="input" value={e.secondary_model ?? r.secondary_model} onChange={(ev) => setEditing((p) => ({ ...p, [r.task]: { ...p[r.task], secondary_model: ev.target.value } }))} />
-                </div>
-                <div className="flex items-center gap-2 justify-center"><ArrowDown className="w-4 h-4" style={{ color: 'rgb(var(--text-muted))' }} /></div>
-                <div>
-                  <label className="label">النموذج الاحتياطي</label>
-                  <input className="input" value={e.fallback_model ?? r.fallback_model} onChange={(ev) => setEditing((p) => ({ ...p, [r.task]: { ...p[r.task], fallback_model: ev.target.value } }))} />
-                </div>
-              </div>
-
-              {Object.keys(e).length > 0 && (
-                <div className="flex justify-end mt-4">
-                  <Button onClick={() => handleSave(r.task)}><Save className="w-4 h-4" /> حفظ</Button>
-                </div>
-              )}
-            </Card>
-          );
-        })}
+            </div>
+          </Card>
+        ))}
       </div>
     </div>
   );

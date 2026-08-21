@@ -29,11 +29,14 @@ const TABS: { key: Tab; label: string; icon: any }[] = [
 ];
 
 const AI_PROVIDER_OPTIONS: { code: AIProviderCode; name: string; models: string[] }[] = [
-  { code: 'openrouter', name: 'OpenRouter', models: ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'google/gemini-pro'] },
-  { code: 'openai', name: 'OpenAI', models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'] },
-  { code: 'gemini', name: 'Google Gemini', models: ['gemini-1.5-pro', 'gemini-1.5-flash'] },
-  { code: 'anthropic', name: 'Anthropic', models: ['claude-3.5-sonnet', 'claude-3-opus', 'claude-3-haiku'] },
-  { code: 'huggingface', name: 'Hugging Face', models: ['mistral-7b', 'llama-3-8b'] },
+  { code: 'openrouter', name: 'OpenRouter — Free Router تلقائي', models: ['openrouter/free'] },
+  { code: 'grok', name: 'Grok (xAI)', models: ['grok-4.6', 'grok-4.6-latest'] },
+  { code: 'groq', name: 'Groq', models: ['llama-3.3-70b-versatile', 'openai/gpt-oss-120b'] },
+  { code: 'cerebras', name: 'Cerebras', models: ['llama-3.3-70b', 'qwen-3-32b'] },
+  { code: 'mistral', name: 'Mistral AI', models: ['mistral-small-latest', 'mistral-large-latest'] },
+  { code: 'openai', name: 'OpenAI', models: ['gpt-4o-mini', 'gpt-4o'] },
+  { code: 'gemini', name: 'Google Gemini', models: ['gemini-2.5-flash'] },
+  { code: 'anthropic', name: 'Anthropic', models: ['claude-3-5-haiku-latest'] },
 ];
 
 export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {}) {
@@ -122,8 +125,9 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
   };
 
   const handleCreateAIProvider = async () => {
-    if (!user || !aiModel || !aiKey) return;
-    await createAIProvider(user.id, aiProvider, aiModel, aiKey, aiPriority);
+    if (!user || !aiKey || (aiProvider !== 'openrouter' && !aiModel)) return;
+    const selectedModel = aiProvider === 'openrouter' ? 'openrouter/free' : aiModel;
+    await createAIProvider(user.id, aiProvider, selectedModel, aiKey, aiPriority);
     toast('تم إضافة مزود AI', 'success');
     setShowAIModal(false); setAIModel(''); setAIKey(''); setAIPriority(0);
     reloadAIProviders();
@@ -397,10 +401,16 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
             <Select label="المزود" value={aiProvider} onChange={(e) => { setAIProvider(e.target.value as AIProviderCode); setAIModel(''); }}>
               {AI_PROVIDER_OPTIONS.map((p) => <option key={p.code} value={p.code}>{p.name}</option>)}
             </Select>
-            <Select label="النموذج" value={aiModel} onChange={(e) => setAIModel(e.target.value)}>
-              <option value="">اختر نموذجاً</option>
-              {AI_PROVIDER_OPTIONS.find((p) => p.code === aiProvider)?.models.map((m) => <option key={m} value={m}>{m}</option>)}
-            </Select>
+            {aiProvider === 'openrouter' ? (
+              <div className="rounded-xl p-3 text-sm" style={{ background: 'rgb(var(--accent-soft))', color: 'rgb(var(--text-secondary))' }}>
+                OpenRouter يستخدم مفتاحاً واحداً فقط. سيعمل التطبيق على <code>openrouter/free</code> ويختار ويبدّل تلقائياً بين النماذج المجانية؛ لا تحتاج إلى اختيار نموذج.
+              </div>
+            ) : (
+              <Select label="النموذج" value={aiModel} onChange={(e) => setAIModel(e.target.value)}>
+                <option value="">اختر نموذجاً</option>
+                {AI_PROVIDER_OPTIONS.find((p) => p.code === aiProvider)?.models.map((m) => <option key={m} value={m}>{m}</option>)}
+              </Select>
+            )}
             <Input label="API Key" type="password" value={aiKey} onChange={(e) => setAIKey(e.target.value)} placeholder="sk-..." />
             <Input label="الأولوية" type="number" value={aiPriority} onChange={(e) => setAIPriority(Number(e.target.value))} min={0} />
             <div className="flex gap-2 justify-end">
