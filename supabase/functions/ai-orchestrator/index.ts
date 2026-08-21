@@ -127,6 +127,15 @@ async function callAdapter(candidate: Candidate, payload: Payload, apiKey: strin
   } else if (provider === 'grok') {
     url = 'https://api.x.ai/v1/chat/completions'; headers.Authorization = `Bearer ${apiKey}`;
     body = { model: model.replace(/^xai\//, ''), messages, temperature: payload.temperature ?? 0.2, max_tokens: payload.max_tokens ?? 1200, response_format: payload.structured_schema ? { type: 'json_object' } : undefined };
+  } else if (provider === 'groq') {
+    url = 'https://api.groq.com/openai/v1/chat/completions'; headers.Authorization = `Bearer ${apiKey}`;
+    body = { model, messages, temperature: payload.temperature ?? 0.2, max_tokens: payload.max_tokens ?? 1200, response_format: payload.structured_schema ? { type: 'json_object' } : undefined };
+  } else if (provider === 'cerebras') {
+    url = 'https://api.cerebras.ai/v1/chat/completions'; headers.Authorization = `Bearer ${apiKey}`;
+    body = { model, messages, temperature: payload.temperature ?? 0.2, max_tokens: payload.max_tokens ?? 1200, response_format: payload.structured_schema ? { type: 'json_object' } : undefined };
+  } else if (provider === 'mistral') {
+    url = 'https://api.mistral.ai/v1/chat/completions'; headers.Authorization = `Bearer ${apiKey}`;
+    body = { model, messages, temperature: payload.temperature ?? 0.2, max_tokens: payload.max_tokens ?? 1200, response_format: payload.structured_schema ? { type: 'json_object' } : undefined };
   } else if (provider === 'openai') {
     url = 'https://api.openai.com/v1/chat/completions'; headers.Authorization = `Bearer ${apiKey}`;
     body = { model, messages, temperature: payload.temperature ?? 0.2, max_tokens: payload.max_tokens ?? 1200, response_format: payload.structured_schema ? { type: 'json_object' } : undefined };

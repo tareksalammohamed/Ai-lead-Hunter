@@ -53,7 +53,7 @@ export type VerificationStatus = 'verified' | 'unverified' | 'invalid' | 'partia
 
 export type ConnectionStatus = 'connected' | 'disconnected' | 'error' | 'untested';
 
-export type AIProviderCode = 'openrouter' | 'openai' | 'gemini' | 'anthropic' | 'huggingface' | 'grok';
+export type AIProviderCode = 'openrouter' | 'openai' | 'gemini' | 'anthropic' | 'huggingface' | 'grok' | 'groq' | 'cerebras' | 'mistral';
 
 // ============================================================
 // Profile

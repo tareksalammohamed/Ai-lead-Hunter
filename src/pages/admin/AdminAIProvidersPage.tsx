@@ -71,9 +71,10 @@ export function AdminAIProvidersPage() {
                   <Cpu className="w-5 h-5" style={{ color: p.enabled ? 'rgb(var(--success))' : 'rgb(var(--text-muted))' }} />
                 </div>
                 <div>
-                  <h3 className="font-bold" style={{ color: 'rgb(var(--text-primary))' }}>{p.provider === 'grok' ? 'Grok (xAI)' : p.provider === 'openrouter' ? 'OpenRouter' : p.provider}</h3>
+                  <h3 className="font-bold" style={{ color: 'rgb(var(--text-primary))' }}>{({ openrouter: 'OpenRouter', grok: 'Grok (xAI)', groq: 'Groq', cerebras: 'Cerebras', mistral: 'Mistral AI' } as Record<string, string>)[p.provider] ?? p.provider}</h3>
                   <p className="text-xs" style={{ color: 'rgb(var(--text-muted))' }}>الأولوية: {p.priority} · {p.default_model}</p>
                   <p className="text-xs mt-1" style={{ color: p.has_key ? 'rgb(var(--success))' : 'rgb(var(--text-muted))' }}>{p.has_key ? 'مفتاح محفوظ في Supabase' : 'لم تتم إضافة مفتاح'}</p>
+                  {p.provider === 'openrouter' && <p className="text-xs mt-1" style={{ color: 'rgb(var(--accent))' }}>مفتاح واحد — اختيار وتبديل تلقائي بين النماذج المجانية داخل OpenRouter</p>}
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -93,10 +94,9 @@ export function AdminAIProvidersPage() {
               <div className="flex items-end">
                 <Toggle checked={e.fallback_enabled ?? p.fallback_enabled} onChange={(v) => update(p.id, 'fallback_enabled', v)} label="تفعيل البديل" />
               </div>
-              {p.provider === 'openrouter' && <>
-                <div className="flex items-end"><Toggle checked={e.openrouter_auto_mode ?? p.openrouter_auto_mode ?? true} onChange={(v) => update(p.id, 'openrouter_auto_mode', v)} label="OpenRouter Auto Mode (openrouter/free)" /></div>
-                <Input label="Model Fallback Chain (مفصولة بفاصلة)" value={(e.model_fallback_chain ?? p.model_fallback_chain ?? []).join(', ')} onChange={(ev) => update(p.id, 'model_fallback_chain', ev.target.value.split(',').map((s) => s.trim()).filter(Boolean))} placeholder="model-a, model-b, model-c" />
-              </>}
+              {p.provider === 'openrouter' && <div className="col-span-2 rounded-xl p-3 text-sm" style={{ background: 'rgb(var(--accent-soft))', color: 'rgb(var(--text-secondary))' }}>
+                OpenRouter يستخدم مفتاح API واحداً فقط. عند تفعيل Auto Mode سيستخدم `openrouter/free` ويختار OpenRouter النموذج المجاني المتاح داخلياً، مع التبديل التلقائي عند فشل النموذج أو مزود الاستضافة. لا تحتاج إلى إدخال أسماء نماذج أو مفاتيح إضافية.
+              </div>}
             </div>
 
             <div className="flex gap-2 justify-end mt-4">

@@ -30,6 +30,9 @@ async function actor(request: Request, admin: ReturnType<typeof createClient>) {
 function providerTarget(provider: string, model: string) {
   if (provider === 'openrouter') return { url: 'https://openrouter.ai/api/v1/chat/completions', model: model || 'openrouter/free' };
   if (provider === 'grok') return { url: 'https://api.x.ai/v1/chat/completions', model: model || 'grok-4.6' };
+  if (provider === 'groq') return { url: 'https://api.groq.com/openai/v1/chat/completions', model: model || 'llama-3.3-70b-versatile' };
+  if (provider === 'cerebras') return { url: 'https://api.cerebras.ai/v1/chat/completions', model: model || 'llama-3.3-70b' };
+  if (provider === 'mistral') return { url: 'https://api.mistral.ai/v1/chat/completions', model: model || 'mistral-small-latest' };
   if (provider === 'openai') return { url: 'https://api.openai.com/v1/chat/completions', model: model || 'gpt-4o-mini' };
   if (provider === 'anthropic') return { url: 'https://api.anthropic.com/v1/messages', model: model || 'claude-3-5-haiku-latest' };
   return { url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', model: model || 'gemini-2.5-flash' };
