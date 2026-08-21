@@ -21,6 +21,17 @@ type Payload = {
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 const now = () => new Date().toISOString();
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const encoder = new TextEncoder();
+async function secretKey(secret: string) { const digest = await crypto.subtle.digest('SHA-256', encoder.encode(secret)); return crypto.subtle.importKey('raw', digest, 'AES-GCM', false, ['decrypt']); }
+function decode64(value: string) { return Uint8Array.from(atob(value), (c) => c.charCodeAt(0)); }
+async function decryptProviderKey(value: string, secret: string) { const [iv, encrypted] = value.split('.'); const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: decode64(iv) }, await secretKey(secret), decode64(encrypted)); return new TextDecoder().decode(plain); }
+async function getProviderKey(admin: ReturnType<typeof createClient>, provider: string) {
+  const env = Deno.env.get(`${provider.toUpperCase()}_API_KEY`) ?? Deno.env.get(provider === 'gemini' ? 'GOOGLE_API_KEY' : '');
+  if (env) return env;
+  const { data } = await admin.from('admin_ai_providers').select('api_key_encrypted').eq('provider', provider).maybeSingle();
+  const secret = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  return data?.api_key_encrypted && secret ? await decryptProviderKey(data.api_key_encrypted, secret) : '';
+}
 
 function classify(error: unknown, status?: number): ErrorType {
   const text = String(error instanceof Error ? error.message : error ?? '').toLowerCase();
@@ -113,6 +124,9 @@ async function callAdapter(candidate: Candidate, payload: Payload, apiKey: strin
     url = 'https://openrouter.ai/api/v1/chat/completions';
     headers.Authorization = `Bearer ${apiKey}`;
     body = { model, models: candidate.fallbackModels?.length ? candidate.fallbackModels.slice(0, 8) : undefined, messages, temperature: payload.temperature ?? 0.2, max_tokens: payload.max_tokens ?? 1200, provider: { allow_fallbacks: true, require_parameters: false } };
+  } else if (provider === 'grok') {
+    url = 'https://api.x.ai/v1/chat/completions'; headers.Authorization = `Bearer ${apiKey}`;
+    body = { model: model.replace(/^xai\//, ''), messages, temperature: payload.temperature ?? 0.2, max_tokens: payload.max_tokens ?? 1200, response_format: payload.structured_schema ? { type: 'json_object' } : undefined };
   } else if (provider === 'openai') {
     url = 'https://api.openai.com/v1/chat/completions'; headers.Authorization = `Bearer ${apiKey}`;
     body = { model, messages, temperature: payload.temperature ?? 0.2, max_tokens: payload.max_tokens ?? 1200, response_format: payload.structured_schema ? { type: 'json_object' } : undefined };
@@ -167,7 +181,7 @@ Deno.serve(async (request) => {
   const events: string[] = []; let lastError = ''; let lastErrorType: ErrorType = 'UNKNOWN'; let previousProvider = '';
   for (let index = 0; index < candidates.length; index++) {
     const candidate = candidates[index];
-    const providerKey = Deno.env.get(`${candidate.provider.toUpperCase()}_API_KEY`) ?? Deno.env.get(candidate.provider === 'gemini' ? 'GOOGLE_API_KEY' : '');
+    const providerKey = await getProviderKey(admin, candidate.provider);
     if (!providerKey && candidate.provider !== 'local') { lastError = `No API key configured for ${candidate.provider}`; lastErrorType = 'AUTH_ERROR'; continue; }
     const attempts = Math.max(1, maxRetries + 1);
     for (let attempt = 0; attempt < attempts; attempt++) {

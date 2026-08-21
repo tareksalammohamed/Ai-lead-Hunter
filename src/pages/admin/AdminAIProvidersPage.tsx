@@ -7,7 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import {
   getAdminAIProviders, updateAdminAIProvider, testAdminAIProvider,
-  getAIModelRouter, updateAIModelRouter,
+  getAIModelRouter, updateAIModelRouter, removeAdminAIProviderKey,
 } from '@/lib/admin-services';
 import type { AdminAIProvider, AIModelRouter } from '@/types';
 import { Card, Button, Input, Toggle, Select, Skeleton, Badge } from '@/components/ui';
@@ -32,6 +32,12 @@ export function AdminAIProvidersPage() {
     toast('تم حفظ المزود', 'success');
     setEditing((p) => { const c = { ...p }; delete c[id]; return c; });
     loadData();
+  };
+
+  const handleRemoveKey = async (id: string) => {
+    if (!user || !window.confirm('حذف مفتاح هذا المزود من قاعدة البيانات؟')) return;
+    try { await removeAdminAIProviderKey(user.id, id); toast('تم حذف المفتاح', 'success'); await loadData(); }
+    catch (error: any) { toast(error.message ?? 'تعذر حذف المفتاح', 'error'); }
   };
 
   const handleTest = async (id: string) => {
@@ -65,8 +71,9 @@ export function AdminAIProvidersPage() {
                   <Cpu className="w-5 h-5" style={{ color: p.enabled ? 'rgb(var(--success))' : 'rgb(var(--text-muted))' }} />
                 </div>
                 <div>
-                  <h3 className="font-bold" style={{ color: 'rgb(var(--text-primary))' }}>{p.provider}</h3>
+                  <h3 className="font-bold" style={{ color: 'rgb(var(--text-primary))' }}>{p.provider === 'grok' ? 'Grok (xAI)' : p.provider === 'openrouter' ? 'OpenRouter' : p.provider}</h3>
                   <p className="text-xs" style={{ color: 'rgb(var(--text-muted))' }}>الأولوية: {p.priority} · {p.default_model}</p>
+                  <p className="text-xs mt-1" style={{ color: p.has_key ? 'rgb(var(--success))' : 'rgb(var(--text-muted))' }}>{p.has_key ? 'مفتاح محفوظ في Supabase' : 'لم تتم إضافة مفتاح'}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -76,7 +83,7 @@ export function AdminAIProvidersPage() {
             </div>
 
                           <div className="grid grid-cols-2 gap-3">
-              <Input label="API Key (محمي)" type="password" placeholder={p.api_key_masked || 'أدخل المفتاح'} value={e.api_key_masked ?? ''} onChange={(ev) => update(p.id, 'api_key_masked', ev.target.value)} />
+              <Input label="مفتاح API — يُحفظ في Supabase فقط" type="password" placeholder={p.has_key ? 'مفتاح محفوظ — اكتب قيمة جديدة للاستبدال' : 'الصق مفتاح API هنا'} value={e.api_key_input ?? ''} onChange={(ev) => update(p.id, 'api_key_input', ev.target.value)} />
               <Input label="Base URL" value={e.base_url ?? p.base_url ?? ''} onChange={(ev) => update(p.id, 'base_url', ev.target.value)} placeholder="https://..." />
               <Input label="النموذج الافتراضي" value={e.default_model ?? p.default_model} onChange={(ev) => update(p.id, 'default_model', ev.target.value)} />
               <Input label="الأولوية" type="number" value={e.priority ?? p.priority} onChange={(ev) => update(p.id, 'priority', Number(ev.target.value))} />
@@ -97,6 +104,7 @@ export function AdminAIProvidersPage() {
                 {testing === p.id ? <Zap className="w-4 h-4 animate-pulse" /> : <Zap className="w-4 h-4" />}
                 اختبار الاتصال
               </Button>
+              {p.has_key && <Button variant="secondary" onClick={() => handleRemoveKey(p.id)}>حذف المفتاح</Button>}
               {Object.keys(e).length > 0 && (
                 <Button onClick={() => handleSave(p.id)}><Save className="w-4 h-4" /> حفظ</Button>
               )}

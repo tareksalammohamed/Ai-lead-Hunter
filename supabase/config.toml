@@ -8,3 +8,6 @@ verify_jwt = true
 
 [functions.openrouter-model-discovery]
 verify_jwt = true
+
+[functions.admin-provider-secrets]
+verify_jwt = true

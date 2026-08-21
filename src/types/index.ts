@@ -53,7 +53,7 @@ export type VerificationStatus = 'verified' | 'unverified' | 'invalid' | 'partia
 
 export type ConnectionStatus = 'connected' | 'disconnected' | 'error' | 'untested';
 
-export type AIProviderCode = 'openrouter' | 'openai' | 'gemini' | 'anthropic' | 'huggingface';
+export type AIProviderCode = 'openrouter' | 'openai' | 'gemini' | 'anthropic' | 'huggingface' | 'grok';
 
 // ============================================================
 // Profile
@@ -543,6 +543,7 @@ export interface AdminAIProvider {
   daily_limit?: number;
   routing_mode?: AIRoutingMode;
   api_key_encrypted?: string;
+  has_key?: boolean;
 }
 
 export interface AIModelRouter {

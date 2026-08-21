@@ -16,3 +16,9 @@ Key verified facts:
 5. Pricing values are per token/request/unit; a price of `0` indicates free. Supported parameters include `tools`, `structured_outputs`, `response_format`, `reasoning`, `max_tokens`, and others.
 6. The OpenRouter free router model is `openrouter/free`; it selects a free model from the available free models. It should be used as a configured special mode, not as a hardcoded single free model pool.
 7. Provider routing can sort by `price`, `throughput`, or `latency`; explicit ordering disables default load balancing. Application-level health/circuit-breaker logic remains responsible for cross-provider failover and persistent checkpoints.
+
+## Current model guidance (Aug 2026)
+
+- Official xAI documentation updated Aug 18, 2026 recommends `grok-4.6` as the general-purpose flagship model, with 500k context and paid API pricing: https://docs.x.ai/developers/models
+- OpenRouter documents `openrouter/free` as the router for free inference and exposes model metadata through its Models API: https://openrouter.ai/openrouter/free and https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties
+- The app treats official Grok as a paid provider and uses OpenRouter's dynamic free pool for free inference. The UI labels Grok separately and does not claim that the official xAI API is free.

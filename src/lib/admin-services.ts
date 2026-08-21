@@ -386,44 +386,66 @@ export async function getConfigHistory(key: string): Promise<ConfigChange[]> {
 
 export async function getAdminAIProviders(): Promise<AdminAIProvider[]> {
   await initAdminData();
+  if (isSupabaseConfigured && supabase) {
+    const { data, error } = await supabase.functions.invoke('admin-provider-secrets', { body: { action: 'list' } });
+    if (!error && Array.isArray(data?.providers)) return data.providers as AdminAIProvider[];
+  }
   const existing = await dbGetAll<AdminAIProvider>('admin_ai_providers');
-  if (existing.length > 0) return existing.sort((a, b) => a.priority - b.priority);
+  if (existing.length > 0) return existing.map(({ api_key_encrypted: _secret, ...provider }) => provider).sort((a, b) => a.priority - b.priority);
   // Seed defaults
   const seed: AdminAIProvider[] = [
-    { id: generateId(), provider: 'openrouter', enabled: true, api_key_masked: '', priority: 1, default_model: 'anthropic/claude-3.5-sonnet', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, updated_at: nowISO() },
-    { id: generateId(), provider: 'openai', enabled: false, api_key_masked: '', priority: 2, default_model: 'gpt-4o', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, updated_at: nowISO() },
-    { id: generateId(), provider: 'gemini', enabled: false, api_key_masked: '', priority: 3, default_model: 'gemini-1.5-pro', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, updated_at: nowISO() },
-    { id: generateId(), provider: 'anthropic', enabled: false, api_key_masked: '', priority: 4, default_model: 'claude-3.5-sonnet', fallback_enabled: true, max_requests: 500, timeout_ms: 30000, retry_count: 3, updated_at: nowISO() },
-    { id: generateId(), provider: 'huggingface', enabled: false, api_key_masked: '', priority: 5, default_model: 'mistral-7b', fallback_enabled: false, max_requests: 500, timeout_ms: 60000, retry_count: 2, updated_at: nowISO() },
+    { id: generateId(), provider: 'openrouter', enabled: true, api_key_masked: '', priority: 1, default_model: 'openrouter/free', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, openrouter_auto_mode: true, model_fallback_chain: ['qwen/qwen3-32b:free', 'deepseek/deepseek-r1:free', 'google/gemma-3-27b-it:free'], updated_at: nowISO() },
+    { id: generateId(), provider: 'grok', enabled: false, api_key_masked: '', priority: 2, default_model: 'grok-4.6', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, base_url: 'https://api.x.ai/v1', model_fallback_chain: ['grok-4.6-latest'], updated_at: nowISO() },
+    { id: generateId(), provider: 'openai', enabled: false, api_key_masked: '', priority: 3, default_model: 'gpt-4o-mini', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, updated_at: nowISO() },
+    { id: generateId(), provider: 'gemini', enabled: false, api_key_masked: '', priority: 4, default_model: 'gemini-2.5-flash', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, updated_at: nowISO() },
+    { id: generateId(), provider: 'anthropic', enabled: false, api_key_masked: '', priority: 5, default_model: 'claude-3-5-haiku-latest', fallback_enabled: true, max_requests: 500, timeout_ms: 30000, retry_count: 3, updated_at: nowISO() },
+    { id: generateId(), provider: 'huggingface', enabled: false, api_key_masked: '', priority: 6, default_model: 'mistralai/Mistral-7B-Instruct-v0.3', fallback_enabled: false, max_requests: 500, timeout_ms: 60000, retry_count: 2, updated_at: nowISO() },
   ];
   for (const p of seed) await dbPut('admin_ai_providers', p);
   return seed;
 }
 
-export async function updateAdminAIProvider(actorId: string, id: string, updates: Partial<AdminAIProvider>): Promise<void> {
+export async function updateAdminAIProvider(actorId: string, id: string, updates: Partial<AdminAIProvider> & { api_key_input?: string }): Promise<void> {
   await requirePermission(actorId, 'manage_ai');
-  const all = await dbGetAll<AdminAIProvider>('admin_ai_providers');
-  const existing = all.find((p) => p.id === id);
-  if (!existing) throw new Error('المزود غير موجود');
-  let apiKey = updates.api_key_masked;
-  if (apiKey && apiKey.length > 4) {
-    updates.api_key_masked = apiKey.slice(0, 4) + '••••••••' + apiKey.slice(-4);
+  const apiKey = updates.api_key_input?.trim();
+  const { api_key_input: _input, api_key_encrypted: _secret, ...safeUpdates } = updates;
+  if (isSupabaseConfigured && supabase) {
+    if (apiKey) {
+      const { data, error } = await supabase.functions.invoke('admin-provider-secrets', { body: { action: 'save', provider_id: id, api_key: apiKey } });
+      if (error || !data?.success) throw error ?? new Error(data?.error ?? 'تعذر حفظ المفتاح');
+    }
+    if (Object.keys(safeUpdates).length > 0) {
+      const { error } = await supabase.from('admin_ai_providers').update({ ...safeUpdates, updated_at: nowISO() }).eq('id', id);
+      if (error) throw error;
+    }
+    await logAdminAction(actorId, 'ai_provider.update', 'ai_provider', id, { ...safeUpdates, key_changed: Boolean(apiKey) });
+    return;
   }
-  await dbPut('admin_ai_providers', { ...existing, ...updates, updated_at: nowISO() });
-  await logAdminAction(actorId, 'ai_provider.update', 'ai_provider', id, updates);
+  const all = await dbGetAll<AdminAIProvider>('admin_ai_providers');
+  const existing = all.find((p) => p.id === id); if (!existing) throw new Error('المزود غير موجود');
+  await dbPut('admin_ai_providers', { ...existing, ...safeUpdates, api_key_masked: apiKey ? `${apiKey.slice(0, 4)}••••••••${apiKey.slice(-4)}` : existing.api_key_masked, updated_at: nowISO() });
+  await logAdminAction(actorId, 'ai_provider.update', 'ai_provider', id, { ...safeUpdates, key_changed: Boolean(apiKey) });
+}
+
+export async function removeAdminAIProviderKey(actorId: string, id: string): Promise<void> {
+  await requirePermission(actorId, 'manage_ai');
+  if (!supabase) throw new Error('حفظ المفاتيح يحتاج Supabase');
+  const { error } = await supabase.functions.invoke('admin-provider-secrets', { body: { action: 'remove', provider_id: id } });
+  if (error) throw error;
 }
 
 export async function testAdminAIProvider(actorId: string, id: string): Promise<{ success: boolean; message: string }> {
   await requirePermission(actorId, 'manage_ai');
+  if (supabase) {
+    const { data, error } = await supabase.functions.invoke('admin-provider-secrets', { body: { action: 'test', provider_id: id } });
+    if (error) return { success: false, message: error.message };
+    return { success: Boolean(data?.success), message: String(data?.message ?? 'انتهى الاختبار') };
+  }
   const all = await dbGetAll<AdminAIProvider>('admin_ai_providers');
-  const existing = all.find((p) => p.id === id);
-  if (!existing) return { success: false, message: 'المزود غير موجود' };
-  // Simulated test — in production this would make a real API call
-  await new Promise((r) => setTimeout(r, 500));
-  const success = existing.enabled;
-  await logAdminAction(actorId, 'ai_provider.test', 'ai_provider', id, { success });
-  return { success, message: success ? 'تم الاتصال بنجاح' : 'المزود غير مفعل' };
+  const existing = all.find((p) => p.id === id); const success = Boolean(existing?.enabled && existing?.api_key_masked);
+  return { success, message: success ? 'تم الاتصال بنجاح' : 'أضف المفتاح وفعّل المزود أولاً' };
 }
+
 
 // ============================================================
 // AI MODEL ROUTER
