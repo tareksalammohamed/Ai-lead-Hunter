@@ -18,6 +18,9 @@ interface AuthContextValue {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signUp: (email: string, password: string, fullName: string) => Promise<{ error?: string }>;
+  resetPassword: (email: string) => Promise<{ error?: string }>;
+  updatePassword: (password: string) => Promise<{ error?: string }>;
+  isRecoverySession: boolean;
   signOut: () => Promise<void>;
 }
 
@@ -48,6 +51,7 @@ function saveLocalUsers(users: LocalUser[]) {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isRecoverySession, setIsRecoverySession] = useState(false);
 
   useEffect(() => {
     if (isSupabaseConfigured && supabase) {
@@ -62,7 +66,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false);
       });
 
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'PASSWORD_RECOVERY') setIsRecoverySession(true);
         (async () => {
           if (session?.user) {
             setUser({
@@ -131,6 +136,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return {};
   };
 
+  const resetPassword = async (email: string): Promise<{ error?: string }> => {
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/`,
+      });
+      return { error: error?.message };
+    }
+    return { error: 'استعادة كلمة المرور متاحة بعد ربط Supabase بالمشروع' };
+  };
+
+  const updatePassword = async (password: string): Promise<{ error?: string }> => {
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (!error) setIsRecoverySession(false);
+      return { error: error?.message };
+    }
+    return { error: 'تغيير كلمة المرور متاح بعد ربط Supabase بالمشروع' };
+  };
+
   const signOut = async (): Promise<void> => {
     if (isSupabaseConfigured && supabase) {
       await supabase.auth.signOut();
@@ -141,7 +165,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ user, loading, signIn, signUp, resetPassword, updatePassword, isRecoverySession, signOut }}>
       {children}
     </AuthContext.Provider>
   );

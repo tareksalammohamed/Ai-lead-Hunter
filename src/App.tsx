@@ -28,11 +28,11 @@ import { AdminUsageLimitsPage, AdminFeatureFlagsPage } from '@/pages/admin/Admin
 import { AdminSecurityPage, AdminAuditLogsPage, AdminHealthPage, AdminNotificationsPage, AdminMaintenancePage } from '@/pages/admin/AdminMonitorPage';
 import { isSuperAdmin } from '@/lib/rbac';
 import { initAdminData } from '@/lib/admin-services';
-import { Loader2, Crosshair } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { ProductionShell } from '@/components/ProductionShell';
 
 function AppContent() {
-  const { user, loading } = useAuth();
+  const { user, loading, isRecoverySession } = useAuth();
   const [page, setPage] = useState<PageKey>('dashboard');
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
@@ -71,7 +71,7 @@ function AppContent() {
       <div className="min-h-screen flex items-center justify-center" style={{ background: 'rgb(var(--bg-primary))' }}>
         <div className="flex flex-col items-center gap-4">
           <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ background: 'rgb(var(--accent))' }}>
-            <Crosshair className="w-9 h-9 text-white" />
+            <img src="/icons/app-icon-192.png" alt="AI Lead Hunter" className="w-full h-full rounded-2xl object-cover" />
           </div>
           <Loader2 className="w-6 h-6 animate-spin" style={{ color: 'rgb(var(--accent))' }} />
         </div>
@@ -79,8 +79,8 @@ function AppContent() {
     );
   }
 
-  if (!user) {
-    return <AuthPage />;
+  if (!user || isRecoverySession) {
+    return <AuthPage recovery={isRecoverySession} />;
   }
 
   // ---- Super Admin Mode ----
