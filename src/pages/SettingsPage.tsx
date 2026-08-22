@@ -125,8 +125,11 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
   };
 
   const handleCreateAIProvider = async () => {
-    if (!user || !aiKey || (aiProvider !== 'openrouter' && !aiModel)) return;
-    const selectedModel = aiProvider === 'openrouter' ? 'openrouter/free' : aiModel;
+    if (!user || !aiKey) return;
+    // Model selection is owned by Smart AI Router and is not user-configurable.
+    const selectedModel = aiProvider === 'openrouter'
+      ? 'openrouter/free'
+      : (AI_PROVIDER_OPTIONS.find((p) => p.code === aiProvider)?.models[0] ?? 'auto');
     await createAIProvider(user.id, aiProvider, selectedModel, aiKey, aiPriority);
     toast('تم إضافة مزود AI', 'success');
     setShowAIModal(false); setAIModel(''); setAIKey(''); setAIPriority(0);
@@ -229,7 +232,7 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
                           <Key className="w-4 h-4" style={{ color: 'rgb(var(--accent))' }} />
                         </div>
                         <div>
-                          <p className="text-sm font-semibold" style={{ color: 'rgb(var(--text-primary))' }}>{p.provider} · {p.model}</p>
+                          <p className="text-sm font-semibold" style={{ color: 'rgb(var(--text-primary))' }}>{p.provider}</p>
                           <p className="text-xs" style={{ color: 'rgb(var(--text-muted))' }}>الأولوية: {p.priority} · {p.api_key_encrypted ? 'مفتاح محفوظ' : 'لا يوجد مفتاح'}</p>
                         </div>
                       </div>
@@ -401,16 +404,9 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
             <Select label="المزود" value={aiProvider} onChange={(e) => { setAIProvider(e.target.value as AIProviderCode); setAIModel(''); }}>
               {AI_PROVIDER_OPTIONS.map((p) => <option key={p.code} value={p.code}>{p.name}</option>)}
             </Select>
-            {aiProvider === 'openrouter' ? (
-              <div className="rounded-xl p-3 text-sm" style={{ background: 'rgb(var(--accent-soft))', color: 'rgb(var(--text-secondary))' }}>
-                OpenRouter يستخدم مفتاحاً واحداً فقط. سيعمل التطبيق على <code>openrouter/free</code> ويختار ويبدّل تلقائياً بين النماذج المجانية؛ لا تحتاج إلى اختيار نموذج.
-              </div>
-            ) : (
-              <Select label="النموذج" value={aiModel} onChange={(e) => setAIModel(e.target.value)}>
-                <option value="">اختر نموذجاً</option>
-                {AI_PROVIDER_OPTIONS.find((p) => p.code === aiProvider)?.models.map((m) => <option key={m} value={m}>{m}</option>)}
-              </Select>
-            )}
+            <div className="rounded-xl p-3 text-sm" style={{ background: 'rgb(var(--accent-soft))', color: 'rgb(var(--text-secondary))' }}>
+              أدخل مفتاح API فقط. سيختار Smart AI Router النموذج المناسب تلقائياً، وينتقل إلى نموذج بديل أو مزود آخر عند الفشل؛ لا يوجد اختيار يدوي للنماذج.
+            </div>
             <Input label="API Key" type="password" value={aiKey} onChange={(e) => setAIKey(e.target.value)} placeholder="sk-..." />
             <Input label="الأولوية" type="number" value={aiPriority} onChange={(e) => setAIPriority(Number(e.target.value))} min={0} />
             <div className="flex gap-2 justify-end">
