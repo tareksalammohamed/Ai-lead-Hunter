@@ -100,13 +100,10 @@ export function AdminAIProvidersPage() {
                           <div className="grid grid-cols-2 gap-3">
               <Input label="مفتاح API — يُحفظ في Supabase فقط" type="password" placeholder={p.has_key ? 'مفتاح محفوظ — اكتب قيمة جديدة للاستبدال' : 'الصق مفتاح API هنا'} value={e.api_key_input ?? ''} onChange={(ev) => update(p.id, 'api_key_input', ev.target.value)} />
               <Input label="Base URL" value={e.base_url ?? p.base_url ?? ''} onChange={(ev) => update(p.id, 'base_url', ev.target.value)} placeholder="https://..." />
-              {p.provider !== 'openrouter' ? (
-                <Input label="النموذج الافتراضي" value={e.default_model ?? p.default_model} onChange={(ev) => update(p.id, 'default_model', ev.target.value)} />
-              ) : (
-                <div className="rounded-xl p-3 text-sm" style={{ background: 'rgb(var(--accent-soft))', color: 'rgb(var(--text-secondary))' }}>
-                  <strong>OpenRouter Free Router</strong><br />لا تختار نموذجاً يدوياً؛ سيستخدم التطبيق <code>openrouter/free</code> ويبدّل تلقائياً بين النماذج المجانية المتاحة.
-                </div>
-              )}
+              <div className="rounded-xl p-3 text-sm col-span-2" style={{ background: 'rgb(var(--accent-soft))', color: 'rgb(var(--text-secondary))' }}>
+                <strong>{p.provider === 'openrouter' ? 'OpenRouter Free Router' : 'Smart Auto Model Switching'}</strong><br />
+                لا تحتاج إلى اختيار نموذج أو إضافة أكثر من مفتاح API واحد. سيختار التطبيق النموذج الافتراضي، ثم ينتقل تلقائياً إلى النماذج البديلة عند الفشل أو انتهاء الحد.
+              </div>
               <Input label="الأولوية" type="number" value={e.priority ?? p.priority} onChange={(ev) => update(p.id, 'priority', Number(ev.target.value))} />
               <Input label="الحد الأقصى للطلبات" type="number" value={e.max_requests ?? p.max_requests} onChange={(ev) => update(p.id, 'max_requests', Number(ev.target.value))} />
               <Input label="المهلة (ms)" type="number" value={e.timeout_ms ?? p.timeout_ms} onChange={(ev) => update(p.id, 'timeout_ms', Number(ev.target.value))} />

@@ -88,10 +88,15 @@ async function resolveCandidates(admin: ReturnType<typeof createClient>, payload
   const modelOrder = [router?.primary_model, router?.secondary_model, router?.fallback_model].filter(Boolean).map(String);
   if (payload.settings?.openrouter_enabled !== false && payload.settings?.openrouter_free_enabled !== false && payload.settings?.openrouter_auto_mode !== false) add('openrouter', 'openrouter/free', free.slice(0, 8));
   for (const provider of ((providers ?? []) as Array<Record<string, unknown>>).filter((p) => p.enabled !== false).sort((a, b) => Number(a.priority ?? 0) - Number(b.priority ?? 0))) {
-    const name = String(provider.provider); const preferred = modelOrder.find((m) => m.startsWith(`${name}/`)) ?? String(provider.default_model ?? '');
+    const name = String(provider.provider);
+    if (name === 'openrouter') continue;
+    const configuredPreferred = modelOrder.find((m) => m.startsWith(`${name}/`));
+    const preferred = configuredPreferred ?? String(provider.default_model ?? '');
     if (!preferred) continue;
-    const fallbacks = Array.isArray(provider.model_fallback_chain) ? provider.model_fallback_chain.map(String) : modelOrder.filter((m) => m !== preferred);
-    add(name, preferred, fallbacks);
+    const configuredFallbacks = Array.isArray(provider.model_fallback_chain) ? provider.model_fallback_chain.map(String).filter(Boolean) : [];
+    const fallbacks = configuredFallbacks.length ? configuredFallbacks : modelOrder.filter((m) => m !== preferred && !m.includes('/'));
+    add(name, preferred);
+    for (const fallback of fallbacks) add(name, fallback);
   }
   for (const candidate of configured) add(candidate.provider, candidate.model, candidate.fallbackModels ?? []);
   return candidates;

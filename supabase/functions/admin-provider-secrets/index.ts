@@ -1,6 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+const SUPER_ADMIN_EMAIL = 'tiano.salam@gmail.com';
+
 const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 const encoder = new TextEncoder();
@@ -24,8 +26,10 @@ async function decryptSecret(value: string, secret: string) {
 async function actor(request: Request, admin: ReturnType<typeof createClient>) {
   const header = request.headers.get('Authorization'); if (!header) return null;
   const token = header.replace(/^Bearer\s+/i, ''); const { data: { user } } = await admin.auth.getUser(token); if (!user) return null;
-  const { data: row } = await admin.from('admin_users').select('role,status').eq('id', user.id).maybeSingle();
-  return row?.status === 'active' && ['SUPER_ADMIN', 'ADMIN'].includes(row.role) ? user : null;
+  const { data: row } = await admin.from('admin_users').select('email,role,status').eq('id', user.id).maybeSingle();
+  const isOwner = user.email?.trim().toLowerCase() === SUPER_ADMIN_EMAIL;
+  const isAuthorizedRow = row?.status === 'active' && row.role === 'SUPER_ADMIN' && row.email?.trim().toLowerCase() === SUPER_ADMIN_EMAIL;
+  return isOwner || isAuthorizedRow ? user : null;
 }
 function providerTarget(provider: string, model: string) {
   if (provider === 'openrouter') return { url: 'https://openrouter.ai/api/v1/chat/completions', model: model || 'openrouter/free' };
@@ -63,7 +67,7 @@ Deno.serve(async (request) => {
     const raw = String(payload.api_key ?? '').trim(); if (raw.length < 8) return json({ error: 'أدخل مفتاحاً صحيحاً' }, 400);
     const masked = `${raw.slice(0, 4)}••••••••${raw.slice(-4)}`;
     const encrypted = await encryptSecret(raw, secret);
-    const { error } = await admin.from('admin_ai_providers').update({ api_key_encrypted: encrypted, api_key_masked: masked, updated_at: new Date().toISOString() }).eq('id', providerId);
+    const { error } = await admin.from('admin_ai_providers').update({ api_key_encrypted: encrypted, api_key_masked: masked, enabled: true, updated_at: new Date().toISOString() }).eq('id', providerId);
     if (error) return json({ error: error.message }, 500);
     await admin.from('audit_logs').insert({ user_id: user.id, action: 'ai_provider.key_saved', entity_type: 'ai_provider', entity_id: providerId, details: { provider: provider.provider, has_key: true } });
     return json({ success: true, provider_id: providerId, api_key_masked: masked, has_key: true });
