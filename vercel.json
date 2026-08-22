@@ -10,5 +10,10 @@
       ]
     }
   ],
-  "rewrites": [{ "source": "/((?!api/|sw\.js|workbox-.*\.js|manifest\.webmanifest).*)", "destination": "/index.html" }]
+  "rewrites": [
+    {
+      "source": "/((?!api/|sw\\.js|workbox-.*\\.js|manifest\\.webmanifest).*)",
+      "destination": "/index.html"
+    }
+  ]
 }
