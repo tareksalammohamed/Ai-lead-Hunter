@@ -29,6 +29,7 @@ import { AdminSecurityPage, AdminAuditLogsPage, AdminHealthPage, AdminNotificati
 import { isSuperAdmin } from '@/lib/rbac';
 import { initAdminData } from '@/lib/admin-services';
 import { Loader2, Crosshair } from 'lucide-react';
+import { ProductionShell } from '@/components/ProductionShell';
 
 function AppContent() {
   const { user, loading } = useAuth();
@@ -146,13 +147,15 @@ function AppContent() {
 
 function App() {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <ToastProvider>
-          <AppContent />
-        </ToastProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <ProductionShell>
+      <ThemeProvider>
+        <AuthProvider>
+          <ToastProvider>
+            <AppContent />
+          </ToastProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </ProductionShell>
   );
 }
 

@@ -83,6 +83,12 @@
   }
 }
 
+/* Production PWA / Capacitor safe-area support */
+html, body, #root { min-height: 100%; }
+body { padding-top: env(safe-area-inset-top); padding-right: env(safe-area-inset-right); padding-bottom: env(safe-area-inset-bottom); padding-left: env(safe-area-inset-left); }
+.safe-top { padding-top: max(0.5rem, env(safe-area-inset-top)); }
+.production-shell { min-height: 100dvh; }
+
 @layer components {
   .card {
     background-color: rgb(var(--bg-card));
