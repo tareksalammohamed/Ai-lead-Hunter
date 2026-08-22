@@ -1,6 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+const SUPER_ADMIN_EMAIL = "tiano.salam@gmail.com";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -30,11 +32,13 @@ Deno.serve(async (request) => {
 
   const { data: actorAdmin, error: actorAdminError } = await adminClient
     .from("admin_users")
-    .select("id, role, status")
+    .select("id, email, role, status")
     .eq("id", actor.id)
     .maybeSingle();
-  if (actorAdminError || !actorAdmin || actorAdmin.status !== "active" || !["SUPER_ADMIN", "ADMIN"].includes(actorAdmin.role)) {
-    return json({ error: "غير مصرح — يتطلب صلاحيات الإدارة" }, 403);
+  const actorIsOwner = actor.email?.trim().toLowerCase() === SUPER_ADMIN_EMAIL;
+  const actorIsAuthorized = actorIsOwner || (actorAdmin?.status === "active" && actorAdmin.role === "SUPER_ADMIN" && actorAdmin.email?.trim().toLowerCase() === SUPER_ADMIN_EMAIL);
+  if (actorAdminError || !actorIsAuthorized) {
+    return json({ error: "غير مصرح — يتطلب صلاحيات Super Admin" }, 403);
   }
 
   let payload: { action?: string; email?: string; fullName?: string; password?: string; role?: string; userId?: string };
@@ -46,7 +50,8 @@ Deno.serve(async (request) => {
 
   if (payload.action === "create") {
     if (!payload.email || !payload.password || !payload.fullName || !payload.role) return json({ error: "بيانات المستخدم غير مكتملة" }, 400);
-    if (payload.role === "SUPER_ADMIN" && actorAdmin.role !== "SUPER_ADMIN") return json({ error: "لا يمكن إنشاء Super Admin" }, 403);
+    const normalizedEmail = payload.email.trim().toLowerCase();
+    const safeRole = normalizedEmail === SUPER_ADMIN_EMAIL ? "SUPER_ADMIN" : "USER";
 
     const { data: created, error: createError } = await adminClient.auth.admin.createUser({
       email: payload.email,
@@ -58,12 +63,12 @@ Deno.serve(async (request) => {
 
     const limits = { max_daily_searches: 50, max_monthly_searches: 1000, max_daily_leads: 500, max_monthly_leads: 10000, max_ai_requests: 200, max_exports: 20, max_active_jobs: 3 };
     const usage = { daily_searches: 0, monthly_searches: 0, daily_leads: 0, monthly_leads: 0, ai_requests: 0, export_count: 0, active_jobs: 0 };
-    const { data: roleDef } = await adminClient.from("admin_roles").select("permissions").eq("name", payload.role).maybeSingle();
+    const { data: roleDef } = await adminClient.from("admin_roles").select("permissions").eq("name", safeRole).maybeSingle();
     const { data: adminUser, error: upsertError } = await adminClient.from("admin_users").upsert({
       id: created.user.id,
       email: payload.email,
       full_name: payload.fullName,
-      role: payload.role,
+      role: safeRole,
       status: "active",
       permissions: roleDef?.permissions ?? [],
       usage,

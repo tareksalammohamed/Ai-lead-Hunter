@@ -12,14 +12,12 @@ import type {
 } from '@/types';
 import { dbGetAll, dbPut, dbDelete, generateId, nowISO } from './db';
 import { supabase, isSupabaseConfigured } from './supabase';
-import { getRoles, createRole as createRoleRBAC, updateRole as updateRoleRBAC, deleteRole as deleteRoleRBAC, isSuperAdmin, hasPermission, initRoles, ALL_PERMISSIONS } from './rbac';
+import { getRoles, createRole as createRoleRBAC, updateRole as updateRoleRBAC, deleteRole as deleteRoleRBAC, isSuperAdmin, hasPermission, initRoles, ALL_PERMISSIONS, SUPER_ADMIN_EMAIL } from './rbac';
 import { refreshOpenRouterModelPool } from './openrouter-model-discovery';
 
 // ============================================================
 // SEED DATA
 // ============================================================
-
-const SUPER_ADMIN_EMAIL = 'admin@leadhunter.ai';
 
 function defaultUserLimits() {
   return {
@@ -215,9 +213,11 @@ export async function createAdminUser(
   password: string,
 ): Promise<AdminUser> {
   await requirePermission(actorId, 'manage_users');
+  const normalizedEmail = email.trim().toLowerCase();
+  const safeRole: SystemRole = normalizedEmail === SUPER_ADMIN_EMAIL ? 'SUPER_ADMIN' : role === 'SUPER_ADMIN' ? 'USER' : role;
   if (isSupabaseConfigured && supabase) {
     const { data, error } = await supabase.functions.invoke('admin-user-management', {
-      body: { action: 'create', email, fullName, role, password },
+      body: { action: 'create', email, fullName, role: safeRole, password },
     });
     if (error) throw error;
     if (!data?.adminUser) throw new Error('تعذر إنشاء المستخدم');
@@ -226,12 +226,12 @@ export async function createAdminUser(
   const users = await dbGetAll<AdminUser>('admin_users');
   if (users.some((u) => u.email === email)) throw new Error('البريد الإلكتروني مسجل بالفعل');
   const roles = await getRoles();
-  const roleDef = roles.find((r) => r.name === role);
+  const roleDef = roles.find((r) => r.name === safeRole);
   const user: AdminUser = {
     id: generateId(),
     email,
     full_name: fullName,
-    role,
+    role: safeRole,
     status: 'active',
     created_at: nowISO(),
     updated_at: nowISO(),
@@ -244,7 +244,7 @@ export async function createAdminUser(
   const localUsers = JSON.parse(localStorage.getItem('alh_local_users') ?? '[]');
   localUsers.push({ id: user.id, email, password, full_name: fullName });
   localStorage.setItem('alh_local_users', JSON.stringify(localUsers));
-  await logAdminAction(actorId, 'user.create', 'user', user.id, { email, role });
+  await logAdminAction(actorId, 'user.create', 'user', user.id, { email, role: safeRole });
   return user;
 }
 
@@ -259,10 +259,12 @@ export async function updateAdminUser(actorId: string, id: string, updates: Part
 
 export async function setAdminUserRole(actorId: string, id: string, role: SystemRole): Promise<void> {
   await requirePermission(actorId, 'manage_users');
+  const existing = await getAdminUser(id);
+  const safeRole: SystemRole = existing?.email.trim().toLowerCase() === SUPER_ADMIN_EMAIL ? 'SUPER_ADMIN' : role === 'SUPER_ADMIN' ? 'USER' : role;
   const roles = await getRoles();
-  const roleDef = roles.find((r) => r.name === role);
-  await updateAdminUser(actorId, id, { role, permissions: roleDef?.permissions ?? [] });
-  await logAdminAction(actorId, 'user.role_change', 'user', id, { role });
+  const roleDef = roles.find((r) => r.name === safeRole);
+  await updateAdminUser(actorId, id, { role: safeRole, permissions: roleDef?.permissions ?? [] });
+  await logAdminAction(actorId, 'user.role_change', 'user', id, { role: safeRole });
 }
 
 export async function setAdminUserStatus(actorId: string, id: string, status: AdminUser['status']): Promise<void> {
