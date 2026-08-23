@@ -156,14 +156,18 @@ export async function orchestrateAI(request: AIOrchestratorRequest): Promise<AIO
 
   // Deterministic local mode keeps the current app usable without provider keys.
   const started = performance.now();
-  const structured = request.structured_schema ? { status: 'success', task: request.task, results: [], confidence: 0, next_step: state.current_step } : undefined;
+  const simulationEvents = request.simulate ? ['Simulated Failure', 'Checkpoint Saved', 'Context Restored', 'Task Resumed'] : [];
+  const localState = request.simulate === 'context_too_long'
+    ? compressContext({ ...state, context_compressed: true, compression_reason: 'SIMULATED_CONTEXT_LIMIT', remaining_work: [...(state.remaining_work ?? []), 'RESUME_AFTER_COMPRESSION'] })
+    : state;
+  const structured = request.structured_schema ? { status: 'success', task: request.task, results: [], confidence: 0, next_step: localState.current_step } : undefined;
   const checkpoint = await saveCheckpoint({
     task_id: taskId, job_id: request.job_id, step: state.current_step, provider: 'local', model: 'rule-based', status: 'completed',
-    input_context: { messages: request.messages }, working_state: state, output: 'تم تنفيذ الخطوة محلياً', structured_result: structured,
+    input_context: { messages: request.messages }, working_state: localState, output: 'تم تنفيذ الخطوة محلياً', structured_result: structured,
     token_usage: { input_tokens: 0, output_tokens: 0 }, idempotency_key: request.idempotency_key,
   });
-  await recordRoutingEvent({ task_id: taskId, job_id: request.job_id, task: request.task, event_type: 'completed', from_provider: 'local', from_model: 'rule-based', message: 'Local deterministic completion', metadata: {} });
-  return { success: true, content: 'تم تنفيذ الخطوة محلياً مع الحفاظ على الحالة.', structured, provider: 'local', model: 'rule-based', latency_ms: Math.round(performance.now() - started), usage: { input_tokens: 0, output_tokens: 0 }, checkpoint_id: checkpoint.id, task_id: taskId, current_step: state.current_step, recovered: Boolean(previous), events: previous ? ['Checkpoint Restored', 'Task Resumed'] : ['Task Completed'] };
+  await recordRoutingEvent({ task_id: taskId, job_id: request.job_id, task: request.task, event_type: 'completed', from_provider: 'local', from_model: 'rule-based', message: 'Local deterministic completion', metadata: { simulated: Boolean(request.simulate), simulation: request.simulate } });
+  return { success: true, content: 'تم تنفيذ الخطوة محلياً مع الحفاظ على الحالة.', structured, provider: 'local', model: 'rule-based', latency_ms: Math.round(performance.now() - started), usage: { input_tokens: 0, output_tokens: 0 }, checkpoint_id: checkpoint.id, task_id: taskId, current_step: localState.current_step, recovered: Boolean(previous), events: request.simulate ? simulationEvents : (previous ? ['Checkpoint Restored', 'Task Resumed'] : ['Task Completed']) };
 }
 
 export async function simulateFailover(simulate: AIOrchestratorRequest['simulate']): Promise<AIOrchestratorResponse> {

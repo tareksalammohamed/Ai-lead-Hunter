@@ -717,6 +717,8 @@ export interface CanonicalTaskState {
   constraints: Record<string, unknown>;
   remaining_work: string[];
   user_instructions?: string;
+  context_compressed?: boolean;
+  compression_reason?: string;
   ids?: Record<string, string>;
 }
 
