@@ -28,26 +28,27 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 const LOCAL_USERS_KEY = 'alh_local_users';
 const LOCAL_SESSION_KEY = 'alh_local_session';
+const allowLocalAuth = import.meta.env.VITE_ALLOW_LOCAL_AUTH === 'true';
 
 interface LocalUser {
   id: string;
   email: string;
-  password: string;
+  passwordHash: string;
   full_name: string;
 }
 
 function getLocalUsers(): LocalUser[] {
-  try {
-    return JSON.parse(localStorage.getItem(LOCAL_USERS_KEY) ?? '[]');
-  } catch {
-    return [];
-  }
+  if (!allowLocalAuth) return [];
+  try { return JSON.parse(localStorage.getItem(LOCAL_USERS_KEY) ?? '[]'); } catch { return []; }
 }
-
 function saveLocalUsers(users: LocalUser[]) {
-  localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(users));
+  if (allowLocalAuth) localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(users));
 }
-
+async function hashPassword(password: string): Promise<string> {
+  const data = new TextEncoder().encode(password);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
+}
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -82,16 +83,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       return () => subscription.unsubscribe();
-    } else {
-      // Local fallback
+    } else if (allowLocalAuth) {
       const session = localStorage.getItem(LOCAL_SESSION_KEY);
       if (session) {
-        try {
-          setUser(JSON.parse(session));
-        } catch {
-          localStorage.removeItem(LOCAL_SESSION_KEY);
-        }
+        try { setUser(JSON.parse(session)); }
+        catch { localStorage.removeItem(LOCAL_SESSION_KEY); }
       }
+      setLoading(false);
+    } else {
       setLoading(false);
     }
   }, []);
@@ -102,9 +101,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { error: error?.message };
     }
 
-    // Local fallback
+    if (!allowLocalAuth) return { error: 'Supabase غير مُهيأ. لا يمكن تسجيل الدخول محليًا في وضع الإنتاج.' };
     const users = getLocalUsers();
-    const found = users.find((u) => u.email === email && u.password === password);
+    const passwordHash = await hashPassword(password);
+    const found = users.find((u) => u.email === email && u.passwordHash === passwordHash);
     if (!found) return { error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' };
     const session: AuthUser = { id: found.id, email: found.email, full_name: found.full_name };
     localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(session));
@@ -122,12 +122,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { error: error?.message };
     }
 
-    // Local fallback
+    if (!allowLocalAuth) return { error: 'Supabase غير مُهيأ. لا يمكن إنشاء حساب محليًا في وضع الإنتاج.' };
     const users = getLocalUsers();
-    if (users.some((u) => u.email === email)) {
-      return { error: 'هذا البريد الإلكتروني مسجل بالفعل' };
-    }
-    const newUser: LocalUser = { id: generateId(), email, password, full_name: fullName };
+    if (users.some((u) => u.email === email)) return { error: 'هذا البريد الإلكتروني مسجل بالفعل' };
+    const newUser: LocalUser = { id: generateId(), email, passwordHash: await hashPassword(password), full_name: fullName };
     users.push(newUser);
     saveLocalUsers(users);
     const session: AuthUser = { id: newUser.id, email, full_name: fullName };

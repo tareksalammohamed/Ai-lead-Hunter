@@ -1,11 +1,19 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" };
-const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+function corsHeaders(request: Request) {
+  const origin = request.headers.get("Origin");
+  const allowed = (Deno.env.get("ALLOWED_ORIGINS") ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  return { "Access-Control-Allow-Origin": origin && allowed.includes(origin) ? origin : (origin ? "" : "*"), "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS", "Vary": "Origin" };
+}
+const json = (body: unknown, status = 200, request?: Request) => new Response(JSON.stringify(body), { status, headers: { ...corsHeaders(request ?? new Request("http://localhost")), "Content-Type": "application/json" } });
 
 Deno.serve(async (request) => {
-  if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  const headers = corsHeaders(request);
+  const origin = request.headers.get("Origin");
+  const allowed = (Deno.env.get("ALLOWED_ORIGINS") ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  if (origin && !allowed.includes(origin)) return json({ error: "Origin not allowed" }, 403, request);
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
   const url = Deno.env.get('SUPABASE_URL'); const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'); const auth = request.headers.get('Authorization');
   if (!url || !serviceKey || !auth) return json({ error: 'Unauthorized' }, 401);

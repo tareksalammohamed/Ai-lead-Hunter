@@ -1,21 +1,29 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const SUPER_ADMIN_EMAIL = "tiano.salam@gmail.com";
+function corsHeaders(request: Request) {
+  const origin = request.headers.get("Origin");
+  const allowed = (Deno.env.get("ALLOWED_ORIGINS") ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  return {
+    "Access-Control-Allow-Origin": origin && allowed.includes(origin) ? origin : (origin ? "" : "*"),
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Vary": "Origin",
+  };
+}
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
 
-const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
+const json = (body: unknown, status = 200, request?: Request) => new Response(JSON.stringify(body), {
   status,
-  headers: { ...corsHeaders, "Content-Type": "application/json" },
+  headers: { ...corsHeaders(request ?? new Request("http://localhost")), "Content-Type": "application/json" },
 });
 
 Deno.serve(async (request) => {
-  if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  const headers = corsHeaders(request);
+  const origin = request.headers.get("Origin");
+  const allowed = (Deno.env.get("ALLOWED_ORIGINS") ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  if (origin && !allowed.includes(origin)) return json({ error: "Origin not allowed" }, 403, request);
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
   if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -35,8 +43,7 @@ Deno.serve(async (request) => {
     .select("id, email, role, status")
     .eq("id", actor.id)
     .maybeSingle();
-  const actorIsOwner = actor.email?.trim().toLowerCase() === SUPER_ADMIN_EMAIL;
-  const actorIsAuthorized = actorIsOwner || (actorAdmin?.status === "active" && actorAdmin.role === "SUPER_ADMIN" && actorAdmin.email?.trim().toLowerCase() === SUPER_ADMIN_EMAIL);
+  const actorIsAuthorized = actorAdmin?.status === "active" && actorAdmin.role === "SUPER_ADMIN";
   if (actorAdminError || !actorIsAuthorized) {
     return json({ error: "غير مصرح — يتطلب صلاحيات Super Admin" }, 403);
   }
@@ -51,7 +58,7 @@ Deno.serve(async (request) => {
   if (payload.action === "create") {
     if (!payload.email || !payload.password || !payload.fullName || !payload.role) return json({ error: "بيانات المستخدم غير مكتملة" }, 400);
     const normalizedEmail = payload.email.trim().toLowerCase();
-    const safeRole = normalizedEmail === SUPER_ADMIN_EMAIL ? "SUPER_ADMIN" : "USER";
+    const safeRole = ["SUPER_ADMIN", "ADMIN", "MANAGER", "RESEARCHER", "USER"].includes(payload.role ?? "") ? payload.role! : "USER";
 
     const { data: created, error: createError } = await adminClient.auth.admin.createUser({
       email: payload.email,

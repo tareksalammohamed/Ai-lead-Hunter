@@ -12,7 +12,7 @@ import type {
 } from '@/types';
 import { dbGetAll, dbPut, dbDelete, generateId, nowISO } from './db';
 import { supabase, isSupabaseConfigured } from './supabase';
-import { getRoles, createRole as createRoleRBAC, updateRole as updateRoleRBAC, deleteRole as deleteRoleRBAC, isSuperAdmin, hasPermission, initRoles, ALL_PERMISSIONS, SUPER_ADMIN_EMAIL } from './rbac';
+import { getRoles, createRole as createRoleRBAC, updateRole as updateRoleRBAC, deleteRole as deleteRoleRBAC, isSuperAdmin, hasPermission, initRoles, ALL_PERMISSIONS } from './rbac';
 import { refreshOpenRouterModelPool } from './openrouter-model-discovery';
 
 // ============================================================
@@ -103,24 +103,6 @@ const DEFAULT_NOTIFICATIONS: AdminNotificationConfig[] = [
 
 export async function initAdminData(): Promise<void> {
   await initRoles();
-
-  // Seed super admin user
-  const users = await dbGetAll<AdminUser>('admin_users');
-  if (!isSupabaseConfigured && !users.some((u) => u.email === SUPER_ADMIN_EMAIL)) {
-    const admin: AdminUser = {
-      id: generateId(),
-      email: SUPER_ADMIN_EMAIL,
-      full_name: 'Super Admin',
-      role: 'SUPER_ADMIN',
-      status: 'active',
-      created_at: nowISO(),
-      updated_at: nowISO(),
-      permissions: [...ALL_PERMISSIONS],
-      usage: defaultUserUsage(),
-      limits: defaultUserLimits(),
-    };
-    await dbPut('admin_users', admin);
-  }
 
   // Seed configs
   const configs = await dbGetAll<SystemConfig>('admin_config');
@@ -213,8 +195,7 @@ export async function createAdminUser(
   password: string,
 ): Promise<AdminUser> {
   await requirePermission(actorId, 'manage_users');
-  const normalizedEmail = email.trim().toLowerCase();
-  const safeRole: SystemRole = normalizedEmail === SUPER_ADMIN_EMAIL ? 'SUPER_ADMIN' : role === 'SUPER_ADMIN' ? 'USER' : role;
+  const safeRole: SystemRole = role;
   if (isSupabaseConfigured && supabase) {
     const { data, error } = await supabase.functions.invoke('admin-user-management', {
       body: { action: 'create', email, fullName, role: safeRole, password },
@@ -260,7 +241,7 @@ export async function updateAdminUser(actorId: string, id: string, updates: Part
 export async function setAdminUserRole(actorId: string, id: string, role: SystemRole): Promise<void> {
   await requirePermission(actorId, 'manage_users');
   const existing = await getAdminUser(id);
-  const safeRole: SystemRole = existing?.email.trim().toLowerCase() === SUPER_ADMIN_EMAIL ? 'SUPER_ADMIN' : role === 'SUPER_ADMIN' ? 'USER' : role;
+  const safeRole: SystemRole = role;
   const roles = await getRoles();
   const roleDef = roles.find((r) => r.name === safeRole);
   await updateAdminUser(actorId, id, { role: safeRole, permissions: roleDef?.permissions ?? [] });

@@ -7,8 +7,6 @@ import type { Permission, SystemRole, RoleDefinition, AdminUser } from '@/types'
 import { dbGetAll, dbPut, generateId, nowISO } from './db';
 import { supabase, isSupabaseConfigured } from './supabase';
 
-export const SUPER_ADMIN_EMAIL = 'tiano.salam@gmail.com';
-
 // ---- Default Role Definitions ----
 export const ALL_PERMISSIONS: Permission[] = [
   'view_dashboard', 'create_campaign', 'run_agent', 'view_leads',
@@ -115,7 +113,7 @@ export async function hasPermission(userId: string, permission: Permission): Pro
   const user = users.find((u) => u.id === userId);
   if (!user) return false;
   if (user.status !== 'active') return false;
-  if (user.role === 'SUPER_ADMIN') return user.email.toLowerCase() === SUPER_ADMIN_EMAIL;
+  if (user.role === 'SUPER_ADMIN') return true;
   const role = await getRoleByName(user.role);
   if (!role) return false;
   return role.permissions.includes(permission);
@@ -125,12 +123,11 @@ export async function hasPermission(userId: string, permission: Permission): Pro
 export async function isSuperAdmin(userId: string): Promise<boolean> {
   const users = await dbGetAll<AdminUser>('admin_users');
   const user = users.find((u) => u.id === userId);
-  if (user?.role === 'SUPER_ADMIN' && user?.status === 'active' && user.email.toLowerCase() === SUPER_ADMIN_EMAIL) return true;
+  if (user?.role === 'SUPER_ADMIN' && user?.status === 'active') return true;
 
-  // In Supabase mode, allow only the configured owner account to bootstrap admin access.
   if (isSupabaseConfigured && supabase) {
-    const { data: { user: authUser } } = await supabase.auth.getUser();
-    return authUser?.id === userId && authUser.email?.toLowerCase() === SUPER_ADMIN_EMAIL;
+    const { data: row } = await supabase.from('admin_users').select('role,status').eq('id', userId).maybeSingle();
+    return row?.status === 'active' && row.role === 'SUPER_ADMIN';
   }
   return false;
 }
@@ -140,7 +137,7 @@ export async function getUserPermissions(userId: string): Promise<Permission[]> 
   const users = await dbGetAll<AdminUser>('admin_users');
   const user = users.find((u) => u.id === userId);
   if (!user || user.status !== 'active') return [];
-  if (user.role === 'SUPER_ADMIN') return user.email.toLowerCase() === SUPER_ADMIN_EMAIL ? [...ALL_PERMISSIONS] : [];
+  if (user.role === 'SUPER_ADMIN') return [...ALL_PERMISSIONS];
   const role = await getRoleByName(user.role);
   return role?.permissions ?? [];
 }

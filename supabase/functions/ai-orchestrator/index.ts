@@ -2,11 +2,16 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createProviderAdapter } from "./adapters.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+function corsHeaders(request: Request) {
+  const origin = request.headers.get("Origin");
+  const allowed = (Deno.env.get("ALLOWED_ORIGINS") ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  return {
+    "Access-Control-Allow-Origin": origin && allowed.includes(origin) ? origin : (origin ? "" : "*"),
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Vary": "Origin",
+  };
+}
 
 type Candidate = { provider: string; model: string; fallbackModels?: string[] };
 type ErrorType = 'RATE_LIMIT'|'TIMEOUT'|'NETWORK_ERROR'|'PROVIDER_DOWN'|'MODEL_UNAVAILABLE'|'MODEL_DEPRECATED'|'CONTEXT_TOO_LONG'|'INVALID_REQUEST'|'AUTH_ERROR'|'QUOTA_EXCEEDED'|'CONTENT_POLICY'|'UNKNOWN';
@@ -18,19 +23,33 @@ type Payload = {
   simulate?: string;
 };
 
-const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+const json = (body: unknown, status = 200, request?: Request) => new Response(JSON.stringify(body), {
+  status,
+  headers: { ...corsHeaders(request ?? new Request("http://localhost")), "Content-Type": "application/json" },
+});
 const now = () => new Date().toISOString();
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const encoder = new TextEncoder();
 async function secretKey(secret: string) { const digest = await crypto.subtle.digest('SHA-256', encoder.encode(secret)); return crypto.subtle.importKey('raw', digest, 'AES-GCM', false, ['decrypt']); }
 function decode64(value: string) { return Uint8Array.from(atob(value), (c) => c.charCodeAt(0)); }
-async function decryptProviderKey(value: string, secret: string) { const [iv, encrypted] = value.split('.'); const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: decode64(iv) }, await secretKey(secret), decode64(encrypted)); return new TextDecoder().decode(plain); }
+async function decryptProviderKey(value: string, secret: string, legacySecret?: string) {
+  const parts = value.split('.');
+  const isV2 = parts.length === 3 && parts[0] === 'v2';
+  const iv = isV2 ? parts[1] : parts[0];
+  const encrypted = isV2 ? parts[2] : parts[1];
+  const keySecret = isV2 ? secret : (legacySecret ?? secret);
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: decode64(iv) }, await secretKey(keySecret), decode64(encrypted));
+  return new TextDecoder().decode(plain);
+}
 async function getProviderKey(admin: ReturnType<typeof createClient>, provider: string) {
   const env = Deno.env.get(`${provider.toUpperCase()}_API_KEY`) ?? Deno.env.get(provider === 'gemini' ? 'GOOGLE_API_KEY' : '');
   if (env) return env;
   const { data } = await admin.from('admin_ai_providers').select('api_key_encrypted').eq('provider', provider).maybeSingle();
-  const secret = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  return data?.api_key_encrypted && secret ? await decryptProviderKey(data.api_key_encrypted, secret) : '';
+  const encryptionSecret = Deno.env.get('AI_PROVIDER_ENCRYPTION_KEY');
+  const legacySecret = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  return data?.api_key_encrypted && encryptionSecret
+    ? await decryptProviderKey(data.api_key_encrypted, encryptionSecret, legacySecret)
+    : '';
 }
 
 function classify(error: unknown, status?: number): ErrorType {
@@ -174,24 +193,39 @@ async function callAdapter(candidate: Candidate, payload: Payload, apiKey: strin
 }
 
 Deno.serve(async (request) => {
-  if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+  const headers = corsHeaders(request);
+  const origin = request.headers.get("Origin");
+  const allowed = (Deno.env.get("ALLOWED_ORIGINS") ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  if (origin && !allowed.includes(origin)) return json({ error: 'Origin not allowed' }, 403, request);
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
+  if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405, request);
   const supabaseUrl = Deno.env.get('SUPABASE_URL'); const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   const authHeader = request.headers.get('Authorization');
   if (!supabaseUrl || !serviceRoleKey || !authHeader) return json({ error: 'Unauthorized' }, 401);
   const admin = createClient(supabaseUrl, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } });
   const token = authHeader.replace(/^Bearer\s+/i, ''); const { data: { user }, error: userError } = await admin.auth.getUser(token);
-  if (userError || !user) return json({ error: 'Unauthorized' }, 401);
-  let payload: Payload; try { payload = await request.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
-  if (!payload.task_id || !payload.task || !Array.isArray(payload.candidates)) return json({ error: 'task, task_id and candidates are required' }, 400);
+  if (userError || !user) return json({ error: 'Unauthorized' }, 401, request);
+  const { data: account } = await admin.from('admin_users').select('status').eq('id', user.id).maybeSingle();
+  if (account?.status !== 'active') return json({ error: 'Account is inactive' }, 403, request);
+  const contentLength = Number(request.headers.get('Content-Length') ?? 0);
+  if (contentLength > 256000) return json({ error: 'Request too large' }, 413, request);
+  let payload: Payload; try { payload = await request.json(); } catch { return json({ error: 'Invalid JSON' }, 400, request); }
+  if (!payload.task_id || !payload.task || !Array.isArray(payload.candidates)) return json({ error: 'task, task_id and candidates are required' }, 400, request);
+  if (String(payload.task_id).length > 128 || String(payload.task).length > 160) return json({ error: 'Invalid task metadata' }, 400, request);
+  if (!Array.isArray(payload.messages) || payload.messages.length > 40 || payload.messages.some((m) => !m || !['user','assistant','system'].includes(String(m.role)) || String(m.content ?? '').length > 12000)) {
+    return json({ error: 'Invalid messages payload' }, 400, request);
+  }
+  if (payload.candidates.length > 20 || payload.candidates.some((c) => !c || String(c.provider ?? '').length > 40 || String(c.model ?? '').length > 180)) {
+    return json({ error: 'Invalid candidates payload' }, 400, request);
+  }
 
   if (payload.idempotency_key) {
     const { data: existing } = await admin.from('ai_task_checkpoints').select('id,provider,model,structured_result,output,token_usage,created_at').eq('idempotency_key', payload.idempotency_key).eq('status', 'completed').maybeSingle();
     if (existing) return json({ success: true, content: existing.output ?? '', structured: existing.structured_result, provider: existing.provider, model: existing.model, latency_ms: 0, usage: existing.token_usage ?? {}, checkpoint_id: existing.id, task_id: payload.task_id, recovered: true, events: ['Idempotency replay avoided duplicate work'] });
   }
 
-  let state = compactState(payload.input_state ?? {}); const candidates = await resolveCandidates(admin, payload);
-  const maxRetries = payload.settings?.auto_retry === false ? 0 : Number(payload.settings?.max_retries ?? 2);
+  const state = compactState(payload.input_state ?? {}); const candidates = await resolveCandidates(admin, payload);
+  const maxRetries = payload.settings?.auto_retry === false ? 0 : Math.min(3, Math.max(0, Number(payload.settings?.max_retries ?? 2)));
   const events: string[] = []; let lastError = ''; let lastErrorType: ErrorType = 'UNKNOWN'; let previousProvider = '';
   for (let index = 0; index < candidates.length; index++) {
     const candidate = candidates[index];
@@ -229,5 +263,5 @@ Deno.serve(async (request) => {
     if (candidates[index + 1]) events.push(`${candidate.provider} Failed`, 'Checkpoint Saved', `Switching to ${candidates[index + 1].provider}`);
   }
   await admin.from('ai_routing_events').insert({ task_id: payload.task_id, job_id: payload.job_id ?? null, task: payload.task, event_type: 'recovery_failed', from_provider: previousProvider || null, error_type: lastErrorType, message: lastError, metadata: {} });
-  return json({ success: false, content: '', provider: previousProvider, model: '', latency_ms: 0, usage: { input_tokens: 0, output_tokens: 0 }, error: lastError, error_type: lastErrorType, task_id: payload.task_id, events: [...events, 'Recovery Failed'] }, 502);
+  return json({ success: false, content: '', provider: previousProvider, model: '', latency_ms: 0, usage: { input_tokens: 0, output_tokens: 0 }, error: 'Research execution failed. Review the mission events for details.', error_type: lastErrorType, task_id: payload.task_id, events: [...events, 'Recovery Failed'] }, 502);
 });

@@ -1,10 +1,20 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const SUPER_ADMIN_EMAIL = 'tiano.salam@gmail.com';
-
-const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" };
-const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+function corsHeaders(request: Request) {
+  const origin = request.headers.get("Origin");
+  const allowed = (Deno.env.get("ALLOWED_ORIGINS") ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  return {
+    "Access-Control-Allow-Origin": origin && allowed.includes(origin) ? origin : (origin ? "" : "*"),
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Vary": "Origin",
+  };
+}
+const json = (body: unknown, status = 200, request?: Request) => new Response(JSON.stringify(body), {
+  status,
+  headers: { ...corsHeaders(request ?? new Request("http://localhost")), "Content-Type": "application/json" },
+});
 const encoder = new TextEncoder();
 
 async function encryptionKey(secret: string) {
@@ -26,10 +36,8 @@ async function decryptSecret(value: string, secret: string) {
 async function actor(request: Request, admin: ReturnType<typeof createClient>) {
   const header = request.headers.get('Authorization'); if (!header) return null;
   const token = header.replace(/^Bearer\s+/i, ''); const { data: { user } } = await admin.auth.getUser(token); if (!user) return null;
-  const { data: row } = await admin.from('admin_users').select('email,role,status').eq('id', user.id).maybeSingle();
-  const isOwner = user.email?.trim().toLowerCase() === SUPER_ADMIN_EMAIL;
-  const isAuthorizedRow = row?.status === 'active' && row.role === 'SUPER_ADMIN' && row.email?.trim().toLowerCase() === SUPER_ADMIN_EMAIL;
-  return isOwner || isAuthorizedRow ? user : null;
+  const { data: row } = await admin.from('admin_users').select('role,status').eq('id', user.id).maybeSingle();
+  return row?.status === 'active' && row.role === 'SUPER_ADMIN' ? user : null;
 }
 function providerTarget(provider: string, model: string) {
   if (provider === 'openrouter') return { url: 'https://openrouter.ai/api/v1/chat/completions', model: model || 'openrouter/free' };
@@ -43,44 +51,49 @@ function providerTarget(provider: string, model: string) {
 }
 
 Deno.serve(async (request) => {
-  if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+  const headers = corsHeaders(request);
+  const origin = request.headers.get("Origin");
+  const allowed = (Deno.env.get("ALLOWED_ORIGINS") ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  if (origin && !allowed.includes(origin)) return json({ error: 'Origin not allowed' }, 403, request);
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
+  if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405, request);
   const url = Deno.env.get('SUPABASE_URL'); const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  if (!url || !serviceKey) return json({ error: 'Server configuration missing' }, 500);
+  const encryptionSecret = Deno.env.get('AI_PROVIDER_ENCRYPTION_KEY');
+  if (!url || !serviceKey || !encryptionSecret) return json({ error: 'Server configuration missing' }, 500, request);
   const admin = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
-  const user = await actor(request, admin); if (!user) return json({ error: 'غير مصرح' }, 403);
+  const user = await actor(request, admin); if (!user) return json({ error: 'غير مصرح' }, 403, request);
   const payload = await request.json().catch(() => ({})); const action = String(payload.action ?? 'list');
 
   if (action === 'list') {
     const { data, error } = await admin.from('admin_ai_providers').select('id,provider,enabled,api_key_masked,base_url,priority,default_model,fallback_enabled,max_requests,timeout_ms,retry_count,openrouter_auto_mode,model_fallback_chain,capabilities,cooldown_ms,daily_limit,routing_mode,updated_at').order('priority');
-    if (error) return json({ error: error.message }, 500);
-    return json({ providers: (data ?? []).map((p) => ({ ...p, has_key: Boolean(p.api_key_masked && p.api_key_masked.length > 0) })) });
+    if (error) return json({ error: error.message }, 500, request);
+    return json({ providers: (data ?? []).map((p) => ({ ...p, has_key: Boolean(p.api_key_masked && p.api_key_masked.length > 0) })) }, 200, request);
   }
 
   const providerId = String(payload.provider_id ?? '');
-  if (!providerId) return json({ error: 'provider_id مطلوب' }, 400);
+  if (!providerId) return json({ error: 'provider_id مطلوب' }, 400, request);
   const { data: provider } = await admin.from('admin_ai_providers').select('id,provider,default_model,api_key_encrypted').eq('id', providerId).maybeSingle();
-  if (!provider) return json({ error: 'المزود غير موجود' }, 404);
-  const secret = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  if (!provider) return json({ error: 'المزود غير موجود' }, 404, request);
+  const secret = encryptionSecret;
 
   if (action === 'save') {
-    const raw = String(payload.api_key ?? '').trim(); if (raw.length < 8) return json({ error: 'أدخل مفتاحاً صحيحاً' }, 400);
+    const raw = String(payload.api_key ?? '').trim(); if (raw.length < 8) return json({ error: 'أدخل مفتاحاً صحيحاً' }, 400, request);
     const masked = `${raw.slice(0, 4)}••••••••${raw.slice(-4)}`;
     const encrypted = await encryptSecret(raw, secret);
     const { error } = await admin.from('admin_ai_providers').update({ api_key_encrypted: encrypted, api_key_masked: masked, enabled: true, updated_at: new Date().toISOString() }).eq('id', providerId);
-    if (error) return json({ error: error.message }, 500);
+    if (error) return json({ error: error.message }, 500, request);
     await admin.from('audit_logs').insert({ user_id: user.id, action: 'ai_provider.key_saved', entity_type: 'ai_provider', entity_id: providerId, details: { provider: provider.provider, has_key: true } });
-    return json({ success: true, provider_id: providerId, api_key_masked: masked, has_key: true });
+    return json({ success: true, provider_id: providerId, api_key_masked: masked, has_key: true }, 200, request);
   }
 
   if (action === 'remove') {
     const { error } = await admin.from('admin_ai_providers').update({ api_key_encrypted: null, api_key_masked: '', updated_at: new Date().toISOString() }).eq('id', providerId);
-    if (error) return json({ error: error.message }, 500);
-    return json({ success: true, provider_id: providerId, has_key: false, api_key_masked: '' });
+    if (error) return json({ error: error.message }, 500, request);
+    return json({ success: true, provider_id: providerId, has_key: false, api_key_masked: '' }, 200, request);
   }
 
   if (action === 'test') {
-    if (!provider.api_key_encrypted) return json({ success: false, message: 'لم تتم إضافة مفتاح لهذا المزود' });
+    if (!provider.api_key_encrypted) return json({ success: false, message: 'لم تتم إضافة مفتاح لهذا المزود' }, 200, request);
     const raw = await decryptSecret(provider.api_key_encrypted, secret); const target = providerTarget(provider.provider, provider.default_model);
     const headers: Record<string, string> = { 'Content-Type': 'application/json', Authorization: `Bearer ${raw}` };
     let body: Record<string, unknown> = { model: target.model, messages: [{ role: 'user', content: 'Reply with OK only.' }], max_tokens: 8, temperature: 0 };
@@ -89,7 +102,7 @@ Deno.serve(async (request) => {
     if (provider.provider === 'gemini') { delete headers.Authorization; testUrl = `${target.url}?key=${encodeURIComponent(raw)}`; body = { contents: [{ parts: [{ text: 'Reply with OK only.' }] }], generationConfig: { maxOutputTokens: 8 } }; }
     const response = await fetch(testUrl, { method: 'POST', headers, body: JSON.stringify(body) });
     const text = await response.text();
-    return json({ success: response.ok, message: response.ok ? 'تم الاتصال بنجاح' : `فشل الاتصال (${response.status})`, provider: provider.provider, detail: response.ok ? undefined : text.slice(0, 300) });
+    return json({ success: response.ok, message: response.ok ? 'تم الاتصال بنجاح' : `فشل الاتصال (${response.status})`, provider: provider.provider, detail: response.ok ? undefined : text.slice(0, 300) }, 200, request);
   }
-  return json({ error: 'إجراء غير معروف' }, 400);
+  return json({ error: 'إجراء غير معروف' }, 400, request);
 });
