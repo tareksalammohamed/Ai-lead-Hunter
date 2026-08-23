@@ -29,6 +29,17 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 const LOCAL_USERS_KEY = 'alh_local_users';
 const LOCAL_SESSION_KEY = 'alh_local_session';
 const allowLocalAuth = import.meta.env.VITE_ALLOW_LOCAL_AUTH === 'true';
+const DEFAULT_PRODUCTION_URL = 'https://ai-lead-hunter-zeta.vercel.app/';
+
+function getAuthRedirectUrl(): string {
+  const configuredUrl = (import.meta.env.VITE_APP_URL as string | undefined)?.trim();
+  if (configuredUrl) return configuredUrl.endsWith('/') ? configuredUrl : `${configuredUrl}/`;
+  if (typeof window === 'undefined') return DEFAULT_PRODUCTION_URL;
+  const origin = window.location.origin;
+  return origin.includes('localhost') || origin.includes('127.0.0.1')
+    ? DEFAULT_PRODUCTION_URL
+    : `${origin}/`;
+}
 
 interface LocalUser {
   id: string;
@@ -117,7 +128,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { error } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { full_name: fullName } },
+        options: {
+        data: { full_name: fullName },
+        emailRedirectTo: getAuthRedirectUrl(),
+      },
       });
       return { error: error?.message };
     }
@@ -137,7 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const resetPassword = async (email: string): Promise<{ error?: string }> => {
     if (isSupabaseConfigured && supabase) {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/`,
+        redirectTo: getAuthRedirectUrl(),
       });
       return { error: error?.message };
     }
