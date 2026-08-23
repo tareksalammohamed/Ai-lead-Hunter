@@ -48,9 +48,15 @@ async function connection(id: string, userId: string) {
   return data;
 }
 async function linkedInRequest(token: string) {
-  const response = await fetch("https://api.linkedin.com/v2/userinfo", { headers: { Authorization: `Bearer ${token}` } });
-  if (!response.ok) throw new Error(`LinkedIn Access Token rejected (${response.status})`);
-  return response.json();
+  const headers = { Authorization: `Bearer ${token}` };
+  const response = await fetch("https://api.linkedin.com/v2/userinfo", { headers });
+  if (response.ok) return response.json();
+  if (response.status === 401 || response.status === 403) {
+    const legacyResponse = await fetch("https://api.linkedin.com/v2/me", { headers });
+    if (legacyResponse.ok) return legacyResponse.json();
+    throw new Error(`LinkedIn Access Token rejected (${legacyResponse.status})`);
+  }
+  throw new Error(`LinkedIn token validation failed (${response.status})`);
 }
 async function run(sourceCode: string, query: Record<string, unknown>, credentials: Record<string, string>) {
   if (sourceCode === "linkedin") {

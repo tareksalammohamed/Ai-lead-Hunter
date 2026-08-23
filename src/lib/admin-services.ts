@@ -151,7 +151,7 @@ export async function initAdminData(): Promise<void> {
       { code: 'google_maps', name: 'Google Maps', enabled: true, available: true, auth_type: 'api_key', api_status: 'healthy', usage_count: 0, limits: { max_per_day: 1000, max_per_hour: 100 } },
       { code: 'web_search', name: 'Web Search', enabled: true, available: true, auth_type: 'api_key', api_status: 'healthy', usage_count: 0, limits: { max_per_day: 5000, max_per_hour: 200 } },
       { code: 'facebook', name: 'Facebook', enabled: true, available: true, auth_type: 'oauth', api_status: 'warning', usage_count: 0, limits: { max_per_day: 500, max_per_hour: 50 } },
-      { code: 'linkedin', name: 'LinkedIn', enabled: false, available: false, auth_type: 'oauth', api_status: 'offline', usage_count: 0, limits: { max_per_day: 200, max_per_hour: 20 } },
+      { code: 'linkedin', name: 'LinkedIn', enabled: true, available: true, auth_type: 'oauth', api_status: 'warning', usage_count: 0, limits: { max_per_day: 200, max_per_hour: 20 } },
       { code: 'website', name: 'Website', enabled: true, available: true, auth_type: 'none', api_status: 'healthy', usage_count: 0, limits: { max_per_day: 10000, max_per_hour: 500 } },
     ];
     for (const c of seed) await dbPut('admin_source_connectors', c);
@@ -501,7 +501,10 @@ export async function testSearchProvider(actorId: string, id: string): Promise<{
 
 export async function getAdminSourceConnectors(): Promise<AdminSourceConnector[]> {
   await initAdminData();
-  return dbGetAll<AdminSourceConnector>('admin_source_connectors');
+  const connectors = await dbGetAll<AdminSourceConnector>('admin_source_connectors');
+  return connectors.map((connector) => connector.code === 'linkedin' && connector.api_status === 'offline'
+    ? { ...connector, enabled: true, available: true, api_status: 'warning' }
+    : connector);
 }
 
 export async function updateSourceConnector(actorId: string, code: string, updates: Partial<AdminSourceConnector>): Promise<void> {
@@ -518,6 +521,11 @@ export async function testSourceConnector(actorId: string, code: string): Promis
   const all = await dbGetAll<AdminSourceConnector>('admin_source_connectors');
   const existing = all.find((c) => c.code === code);
   if (!existing) return { success: false, message: 'الموصل غير موجود' };
+  if (code === 'linkedin') {
+    await updateSourceConnector(actorId, code, { last_test: nowISO(), enabled: true, available: true, api_status: 'warning' });
+    await logAdminAction(actorId, 'source_connector.test', 'source_connector', code, { requires_partner_approval: true });
+    return { success: false, message: 'LinkedIn متاح كموصل، لكنه يحتاج Access Token صالح وموافقة Partner لاستخدام البحث.' };
+  }
   await updateSourceConnector(actorId, code, { last_test: nowISO(), api_status: existing.available ? 'healthy' : 'offline' });
   await logAdminAction(actorId, 'source_connector.test', 'source_connector', code, {});
   return { success: existing.available, message: existing.available ? 'الموصل يعمل' : 'الموصل غير متاح' };
@@ -714,11 +722,11 @@ export async function getSystemHealth(): Promise<SystemHealthCheck[]> {
   };
   const connectorCheck: SystemHealthCheck = {
     component: 'Source Connectors',
-    status: linkedin?.enabled && linkedin.available ? 'healthy' : 'warning',
+    status: linkedin?.api_status === 'healthy' ? 'healthy' : 'warning',
     latency_ms: 0,
     error_rate: 0,
     last_check: nowISO(),
-    message: linkedin?.enabled && linkedin.available ? 'الموصلات المفعلة جاهزة' : 'LinkedIn يحتاج Access Token وموافقة API المناسبة',
+    message: linkedin?.api_status === 'healthy' ? 'الموصلات المفعلة جاهزة' : 'LinkedIn متاح ويحتاج Access Token صالح وموافقة Partner للبحث',
   };
   const existing = await dbGetAll<SystemHealthCheck>('admin_health_checks');
   if (existing.length > 0) {

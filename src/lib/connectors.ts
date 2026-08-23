@@ -229,11 +229,15 @@ const linkedinConnector: SourceConnector = {
     const token = credentials.access_token ?? credentials.api_key;
     if (!token) return { success: false, message: 'Access Token مطلوب' };
     try {
-      const response = await fetch('https://api.linkedin.com/v2/userinfo', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const headers = { Authorization: `Bearer ${token}` };
+      const response = await fetch('https://api.linkedin.com/v2/userinfo', { headers });
       if (response.ok) return { success: true, message: 'Access Token صالح — البحث يحتاج صلاحية LinkedIn API المناسبة' };
-      return { success: false, message: `Access Token غير صالح (${response.status})` };
+      if (response.status === 401 || response.status === 403) {
+        const legacyResponse = await fetch('https://api.linkedin.com/v2/me', { headers });
+        if (legacyResponse.ok) return { success: true, message: 'Access Token صالح — البحث يحتاج موافقة LinkedIn Partner/API المناسبة' };
+        return { success: false, message: `Access Token مرفوض من LinkedIn (${legacyResponse.status})` };
+      }
+      return { success: false, message: `تعذر التحقق من Access Token (${response.status})` };
     } catch (error: any) {
       return { success: false, message: error.message ?? 'تعذر الاتصال بـ LinkedIn' };
     }
