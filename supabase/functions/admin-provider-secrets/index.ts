@@ -70,8 +70,11 @@ Deno.serve(async (request) => {
   if (origin && !allowed.includes(origin)) return json({ error: 'Origin not allowed' }, 403, request);
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405, request);
-  const url = Deno.env.get('SUPABASE_URL'); const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  const encryptionSecret = Deno.env.get('AI_PROVIDER_ENCRYPTION_KEY');
+  const url = Deno.env.get('SUPABASE_URL');
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  // Prefer a dedicated secret; fall back to the server-only service key so the
+  // function remains usable when the optional encryption secret is not configured.
+  const encryptionSecret = Deno.env.get('AI_PROVIDER_ENCRYPTION_KEY') ?? serviceKey;
   if (!url || !serviceKey || !encryptionSecret) return json({ error: 'Server configuration missing' }, 500, request);
   const admin = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
   const user = await actor(request, admin); if (!user) return json({ error: 'غير مصرح' }, 403, request);
