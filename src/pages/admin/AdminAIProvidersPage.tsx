@@ -27,10 +27,9 @@ export function AdminAIProvidersPage() {
     const loaded = await getAdminAIProviders();
     const catalog = [
       { provider: 'openrouter' as AIProviderCode, enabled: true, priority: 1, default_model: 'openrouter/free', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, openrouter_auto_mode: true, model_fallback_chain: [] },
-      { provider: 'grok' as AIProviderCode, enabled: false, priority: 2, default_model: 'grok-4.6', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, base_url: 'https://api.x.ai/v1', model_fallback_chain: ['grok-4.6-latest'] },
-      { provider: 'groq' as AIProviderCode, enabled: false, priority: 3, default_model: 'llama-3.3-70b-versatile', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, base_url: 'https://api.groq.com/openai/v1', model_fallback_chain: ['openai/gpt-oss-120b'] },
-      { provider: 'cerebras' as AIProviderCode, enabled: false, priority: 4, default_model: 'llama-3.3-70b', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, base_url: 'https://api.cerebras.ai/v1', model_fallback_chain: ['qwen-3-32b'] },
-      { provider: 'mistral' as AIProviderCode, enabled: false, priority: 5, default_model: 'mistral-small-latest', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, base_url: 'https://api.mistral.ai/v1', model_fallback_chain: ['mistral-large-latest'] },
+      { provider: 'groq' as AIProviderCode, enabled: false, priority: 2, default_model: 'llama-3.3-70b-versatile', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, base_url: 'https://api.groq.com/openai/v1', model_fallback_chain: ['openai/gpt-oss-120b'] },
+      { provider: 'cerebras' as AIProviderCode, enabled: false, priority: 3, default_model: 'llama-3.3-70b', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, base_url: 'https://api.cerebras.ai/v1', model_fallback_chain: ['qwen-3-32b'] },
+      { provider: 'mistral' as AIProviderCode, enabled: false, priority: 4, default_model: 'mistral-small-latest', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, base_url: 'https://api.mistral.ai/v1', model_fallback_chain: ['mistral-large-latest'] },
     ];
     const byProvider = new Map<AIProviderCode, AdminAIProvider>(loaded.map((item) => [item.provider, item]));
     const normalized = catalog.map((defaults) => ({ id: `catalog-${defaults.provider}`, ...defaults, api_key_masked: '', has_key: false, ...byProvider.get(defaults.provider) } as AdminAIProvider));
@@ -76,7 +75,7 @@ export function AdminAIProvidersPage() {
         {providers.map((p) => {
           const e = editing[p.id] ?? {};
           const status = connectionStatus[p.id];
-          const providerNames: Record<string, string> = { openrouter: 'OpenRouter', grok: 'Grok (xAI)', groq: 'Groq', cerebras: 'Cerebras', mistral: 'Mistral AI' };
+          const providerNames: Record<string, string> = { openrouter: 'OpenRouter', groq: 'Groq', cerebras: 'Cerebras', mistral: 'Mistral AI' };
           const statusLabel = status ? (status.success ? 'متصل' : 'فشل الاتصال') : p.has_key ? 'مفتاح محفوظ — لم يتم الاختبار' : 'غير مُعد';
           const statusColor = status?.success ? 'rgb(var(--success))' : status && !status.success ? 'rgb(var(--danger))' : p.has_key ? 'rgb(var(--warning))' : 'rgb(var(--text-muted))';
           return (
