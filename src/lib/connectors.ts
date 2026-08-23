@@ -228,7 +228,15 @@ const linkedinConnector: SourceConnector = {
   async testConnection(credentials: Record<string, string>) {
     const token = credentials.access_token ?? credentials.api_key;
     if (!token) return { success: false, message: 'Access Token مطلوب' };
-    return { success: true, message: 'تم حفظ الرمز. يتطلب LinkedIn API موافقة Partner.' };
+    try {
+      const response = await fetch('https://api.linkedin.com/v2/userinfo', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.ok) return { success: true, message: 'Access Token صالح — البحث يحتاج صلاحية LinkedIn API المناسبة' };
+      return { success: false, message: `Access Token غير صالح (${response.status})` };
+    } catch (error: any) {
+      return { success: false, message: error.message ?? 'تعذر الاتصال بـ LinkedIn' };
+    }
   },
 };
 

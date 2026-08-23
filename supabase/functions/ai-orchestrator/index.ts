@@ -45,8 +45,8 @@ async function getProviderKey(admin: ReturnType<typeof createClient>, provider: 
   const env = Deno.env.get(`${provider.toUpperCase()}_API_KEY`) ?? Deno.env.get(provider === 'gemini' ? 'GOOGLE_API_KEY' : '');
   if (env) return env;
   const { data } = await admin.from('admin_ai_providers').select('api_key_encrypted').eq('provider', provider).maybeSingle();
-  const encryptionSecret = Deno.env.get('AI_PROVIDER_ENCRYPTION_KEY');
   const legacySecret = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  const encryptionSecret = Deno.env.get('AI_PROVIDER_ENCRYPTION_KEY') ?? legacySecret;
   return data?.api_key_encrypted && encryptionSecret
     ? await decryptProviderKey(data.api_key_encrypted, encryptionSecret, legacySecret)
     : '';

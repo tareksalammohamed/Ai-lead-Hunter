@@ -378,7 +378,6 @@ export async function getAdminAIProviders(): Promise<AdminAIProvider[]> {
   // Seed defaults
   const seed: AdminAIProvider[] = [
     { id: generateId(), provider: 'openrouter', enabled: true, api_key_masked: '', priority: 1, default_model: 'openrouter/free', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, openrouter_auto_mode: true, model_fallback_chain: ['qwen/qwen3-32b:free', 'deepseek/deepseek-r1:free', 'google/gemma-3-27b-it:free'], updated_at: nowISO() },
-    { id: generateId(), provider: 'grok', enabled: false, api_key_masked: '', priority: 2, default_model: 'grok-4.6', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, base_url: 'https://api.x.ai/v1', model_fallback_chain: ['grok-4.6-latest'], updated_at: nowISO() },
     { id: generateId(), provider: 'groq', enabled: false, api_key_masked: '', priority: 3, default_model: 'llama-3.3-70b-versatile', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, base_url: 'https://api.groq.com/openai/v1', model_fallback_chain: ['openai/gpt-oss-120b'], updated_at: nowISO() },
     { id: generateId(), provider: 'cerebras', enabled: false, api_key_masked: '', priority: 4, default_model: 'llama-3.3-70b', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, base_url: 'https://api.cerebras.ai/v1', model_fallback_chain: ['qwen-3-32b'], updated_at: nowISO() },
     { id: generateId(), provider: 'mistral', enabled: false, api_key_masked: '', priority: 5, default_model: 'mistral-small-latest', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, base_url: 'https://api.mistral.ai/v1', model_fallback_chain: ['mistral-large-latest'], updated_at: nowISO() },
@@ -702,15 +701,39 @@ export async function isFeatureEnabled(key: string): Promise<boolean> {
 
 export async function getSystemHealth(): Promise<SystemHealthCheck[]> {
   await initAdminData();
+  const providers = await dbGetAll<AdminAIProvider>('admin_ai_providers');
+  const sourceConnectors = await dbGetAll<AdminSourceConnector>('admin_source_connectors');
+  const configuredAI = providers.filter((p) => p.enabled && Boolean(p.api_key_masked));
+  const linkedin = sourceConnectors.find((c) => c.code === 'linkedin');
+  const aiCheck: SystemHealthCheck = {
+    component: 'AI Providers',
+    status: configuredAI.length > 0 ? 'healthy' : 'warning',
+    latency_ms: 0,
+    error_rate: 0,
+    last_check: nowISO(),
+    message: configuredAI.length > 0 ? `${configuredAI.length} مزود مفعل ومهيأ` : 'أضف مفتاح API وفعل مزودًا واحدًا على الأقل',
+  };
+  const connectorCheck: SystemHealthCheck = {
+    component: 'Source Connectors',
+    status: linkedin?.enabled && linkedin.available ? 'healthy' : 'warning',
+    latency_ms: 0,
+    error_rate: 0,
+    last_check: nowISO(),
+    message: linkedin?.enabled && linkedin.available ? 'الموصلات المفعلة جاهزة' : 'LinkedIn يحتاج Access Token وموافقة API المناسبة',
+  };
   const existing = await dbGetAll<SystemHealthCheck>('admin_health_checks');
-  if (existing.length > 0) return existing;
+  if (existing.length > 0) {
+    const refreshed = existing.map((c) => c.component === 'AI Providers' ? { ...c, ...aiCheck } : c.component === 'Source Connectors' ? { ...c, ...connectorCheck } : c);
+    for (const c of refreshed) await dbPut('admin_health_checks', { ...c, id: c.component } as any);
+    return refreshed;
+  }
   const checks: SystemHealthCheck[] = [
     { component: 'Supabase', status: 'healthy', latency_ms: 45, error_rate: 0, last_check: nowISO() },
     { component: 'Database', status: 'healthy', latency_ms: 12, error_rate: 0, last_check: nowISO() },
     { component: 'Edge Functions', status: 'healthy', latency_ms: 120, error_rate: 0, last_check: nowISO() },
-    { component: 'AI Providers', status: 'warning', latency_ms: 850, error_rate: 2, last_check: nowISO(), message: 'بعض المزودين غير مفعلين' },
+    aiCheck,
     { component: 'Search Providers', status: 'healthy', latency_ms: 200, error_rate: 0, last_check: nowISO() },
-    { component: 'Source Connectors', status: 'warning', latency_ms: 350, error_rate: 1, last_check: nowISO(), message: 'LinkedIn غير متاح' },
+    connectorCheck,
     { component: 'Realtime', status: 'healthy', latency_ms: 30, error_rate: 0, last_check: nowISO() },
     { component: 'Queue / Jobs', status: 'healthy', latency_ms: 50, error_rate: 0, last_check: nowISO() },
   ];
