@@ -106,33 +106,33 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
 }
 
 // ---- Input ----
-export function Input({ label, error, ...props }: { label?: string; error?: string } & React.InputHTMLAttributes<HTMLInputElement>) {
+export function Input({ label, error, className = '', ...props }: { label?: string; error?: string } & React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <div>
       {label && <label className="label">{label}</label>}
-      <input className="input" {...props} />
+      <input className={`input ${className}`} {...props} />
       {error && <p className="text-xs mt-1 text-red-500">{error}</p>}
     </div>
   );
 }
 
 // ---- Textarea ----
-export function Textarea({ label, error, ...props }: { label?: string; error?: string } & React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+export function Textarea({ label, error, className = '', ...props }: { label?: string; error?: string } & React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <div>
       {label && <label className="label">{label}</label>}
-      <textarea className="input" rows={props.rows ?? 3} {...props} />
+      <textarea className={`input ${className}`} rows={props.rows ?? 3} {...props} />
       {error && <p className="text-xs mt-1 text-red-500">{error}</p>}
     </div>
   );
 }
 
 // ---- Select ----
-export function Select({ label, error, children, ...props }: { label?: string; error?: string; children: ReactNode } & React.SelectHTMLAttributes<HTMLSelectElement>) {
+export function Select({ label, error, children, className = '', ...props }: { label?: string; error?: string; children: ReactNode } & React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <div>
       {label && <label className="label">{label}</label>}
-      <select className="input" {...props}>{children}</select>
+      <select className={`input ${className}`} {...props}>{children}</select>
       {error && <p className="text-xs mt-1 text-red-500">{error}</p>}
     </div>
   );
