@@ -1,9 +1,22 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+const DEFAULT_ALLOWED_ORIGINS = [
+  "https://ai-lead-hunter-zeta.vercel.app",
+  "https://aileadhunter.vercel.app",
+];
+
+function allowedOrigins() {
+  const configured = (Deno.env.get("ALLOWED_ORIGINS") ?? "")
+    .split(",")
+    .map((v) => v.trim().replace(/\/$/, ""))
+    .filter(Boolean);
+  return [...new Set([...DEFAULT_ALLOWED_ORIGINS, ...configured])];
+}
+
 function corsHeaders(request: Request) {
   const origin = request.headers.get("Origin");
-  const allowed = (Deno.env.get("ALLOWED_ORIGINS") ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  const allowed = allowedOrigins();
   return {
     "Access-Control-Allow-Origin": origin ? (allowed.includes(origin) ? origin : "") : "",
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -53,7 +66,7 @@ function providerTarget(provider: string, model: string) {
 Deno.serve(async (request) => {
   const headers = corsHeaders(request);
   const origin = request.headers.get("Origin");
-  const allowed = (Deno.env.get("ALLOWED_ORIGINS") ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  const allowed = allowedOrigins();
   if (origin && !allowed.includes(origin)) return json({ error: 'Origin not allowed' }, 403, request);
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405, request);
