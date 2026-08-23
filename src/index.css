@@ -169,6 +169,19 @@ body { padding-top: env(safe-area-inset-top); padding-right: env(safe-area-inset
     color: rgb(var(--text-muted));
   }
 
+  .dark .input,
+  .dark select,
+  .dark textarea {
+    color-scheme: dark;
+  }
+
+  .dark select.input,
+  .dark input.input,
+  .dark textarea.input {
+    background-color: rgb(var(--bg-card));
+    color: rgb(var(--text-primary));
+  }
+
   .badge {
     display: inline-flex;
     align-items: center;
