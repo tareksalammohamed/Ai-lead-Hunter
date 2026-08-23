@@ -70,12 +70,12 @@ const DEFAULT_FEATURE_FLAGS: Omit<FeatureFlag, 'id' | 'updated_at'>[] = [
 ];
 
 const DEFAULT_AI_MODEL_ROUTER: AIModelRouter[] = [
-  { task: 'research_planning', primary_model: 'anthropic/claude-3.5-sonnet', secondary_model: 'openai/gpt-4o', fallback_model: 'google/gemini-pro' },
-  { task: 'data_extraction', primary_model: 'openai/gpt-4o', secondary_model: 'anthropic/claude-3.5-sonnet', fallback_model: 'google/gemini-pro' },
-  { task: 'intent_detection', primary_model: 'openai/gpt-4o-mini', secondary_model: 'google/gemini-1.5-flash', fallback_model: 'anthropic/claude-3-haiku' },
-  { task: 'lead_scoring', primary_model: 'openai/gpt-4o-mini', secondary_model: 'google/gemini-1.5-flash', fallback_model: 'openai/gpt-4o' },
-  { task: 'entity_matching', primary_model: 'anthropic/claude-3.5-sonnet', secondary_model: 'openai/gpt-4o', fallback_model: 'google/gemini-pro' },
-  { task: 'summarization', primary_model: 'google/gemini-1.5-flash', secondary_model: 'openai/gpt-4o-mini', fallback_model: 'anthropic/claude-3-haiku' },
+  { task: 'research_planning', primary_model: 'anthropic/claude-3.5-sonnet', secondary_model: 'openai/gpt-4o', fallback_model: 'openrouter/free' },
+  { task: 'data_extraction', primary_model: 'openai/gpt-4o', secondary_model: 'anthropic/claude-3.5-sonnet', fallback_model: 'openrouter/free' },
+  { task: 'intent_detection', primary_model: 'openai/gpt-4o-mini', secondary_model: 'anthropic/claude-3-haiku', fallback_model: 'openrouter/free' },
+  { task: 'lead_scoring', primary_model: 'openai/gpt-4o-mini', secondary_model: 'openai/gpt-4o', fallback_model: 'openrouter/free' },
+  { task: 'entity_matching', primary_model: 'anthropic/claude-3.5-sonnet', secondary_model: 'openai/gpt-4o', fallback_model: 'openrouter/free' },
+  { task: 'summarization', primary_model: 'openai/gpt-4o-mini', secondary_model: 'anthropic/claude-3-haiku', fallback_model: 'openrouter/free' },
 ];
 
 const DEFAULT_INTENT_CATEGORIES: Omit<IntentCategory, 'id'>[] = [
@@ -371,9 +371,9 @@ export async function getAdminAIProviders(): Promise<AdminAIProvider[]> {
   await initAdminData();
   if (isSupabaseConfigured && supabase) {
     const { data, error } = await supabase.functions.invoke('admin-provider-secrets', { body: { action: 'list' } });
-    if (!error && Array.isArray(data?.providers)) return data.providers as AdminAIProvider[];
+    if (!error && Array.isArray(data?.providers)) return (data.providers as AdminAIProvider[]).filter((provider) => provider.provider !== 'gemini');
   }
-  const existing = await dbGetAll<AdminAIProvider>('admin_ai_providers');
+  const existing = (await dbGetAll<AdminAIProvider>('admin_ai_providers')).filter((p) => p.provider !== 'gemini');
   if (existing.length > 0) return existing.map(({ api_key_encrypted: _secret, ...provider }) => provider).sort((a, b) => a.priority - b.priority);
   // Seed defaults
   const seed: AdminAIProvider[] = [
@@ -382,7 +382,6 @@ export async function getAdminAIProviders(): Promise<AdminAIProvider[]> {
     { id: generateId(), provider: 'cerebras', enabled: false, api_key_masked: '', priority: 4, default_model: 'llama-3.3-70b', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, base_url: 'https://api.cerebras.ai/v1', model_fallback_chain: ['qwen-3-32b'], updated_at: nowISO() },
     { id: generateId(), provider: 'mistral', enabled: false, api_key_masked: '', priority: 5, default_model: 'mistral-small-latest', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, base_url: 'https://api.mistral.ai/v1', model_fallback_chain: ['mistral-large-latest'], updated_at: nowISO() },
     { id: generateId(), provider: 'openai', enabled: false, api_key_masked: '', priority: 6, default_model: 'gpt-4o-mini', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, updated_at: nowISO() },
-    { id: generateId(), provider: 'gemini', enabled: false, api_key_masked: '', priority: 7, default_model: 'gemini-2.5-flash', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, updated_at: nowISO() },
     { id: generateId(), provider: 'anthropic', enabled: false, api_key_masked: '', priority: 8, default_model: 'claude-3-5-haiku-latest', fallback_enabled: true, max_requests: 500, timeout_ms: 30000, retry_count: 3, updated_at: nowISO() },
     { id: generateId(), provider: 'huggingface', enabled: false, api_key_masked: '', priority: 9, default_model: 'mistralai/Mistral-7B-Instruct-v0.3', fallback_enabled: false, max_requests: 500, timeout_ms: 60000, retry_count: 2, updated_at: nowISO() },
   ];

@@ -234,7 +234,7 @@ Deno.serve(async (request) => {
     const attempts = Math.max(1, maxRetries + 1);
     for (let attempt = 0; attempt < attempts; attempt++) {
       const startedAt = now();
-      if (payload.simulate === 'openrouter_failure' && candidate.provider === 'openrouter' || payload.simulate === 'gemini_failure' && candidate.provider === 'gemini' || payload.simulate === 'timeout' || payload.simulate === 'context_too_long') {
+      if (payload.simulate === 'openrouter_failure' && candidate.provider === 'openrouter' || payload.simulate === 'timeout' || payload.simulate === 'context_too_long') {
         if (payload.simulate === 'context_too_long') {
           state = compactState({ ...state, context_compressed: true, compression_reason: 'SIMULATED_CONTEXT_LIMIT', current_step: state.current_step, remaining_work: [...(state.remaining_work ?? []), 'RESUME_AFTER_COMPRESSION'] });
           await admin.from('ai_routing_events').insert({ task_id: payload.task_id, job_id: payload.job_id ?? null, task: payload.task, event_type: 'context_compressed', from_provider: candidate.provider, from_model: candidate.model, message: 'Context compressed during reliability simulation', metadata: { simulated: true } });

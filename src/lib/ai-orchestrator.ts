@@ -17,16 +17,16 @@ const DEFAULT_RELIABILITY: AIReliabilitySettings = {
 };
 
 const DEFAULT_TASKS: Array<AIModelRouter & { task: string }> = [
-  { task: 'research_planning', primary_model: 'openrouter/free', secondary_model: 'google/gemini-2.0-flash-exp:free', fallback_model: 'openai/gpt-4o-mini' },
-  { task: 'query_generation', primary_model: 'openrouter/free', secondary_model: 'google/gemini-2.0-flash-exp:free', fallback_model: 'openai/gpt-4o-mini' },
-  { task: 'data_extraction', primary_model: 'openrouter/free', secondary_model: 'google/gemini-2.0-flash-exp:free', fallback_model: 'openai/gpt-4o-mini' },
-  { task: 'intent_detection', primary_model: 'openrouter/free', secondary_model: 'google/gemini-2.0-flash-exp:free', fallback_model: 'huggingface/mistralai/Mistral-7B-Instruct-v0.3' },
-  { task: 'lead_scoring', primary_model: 'openrouter/free', secondary_model: 'google/gemini-2.0-flash-exp:free', fallback_model: 'openai/gpt-4o-mini' },
-  { task: 'entity_matching', primary_model: 'openrouter/free', secondary_model: 'google/gemini-2.0-flash-exp:free', fallback_model: 'openai/gpt-4o-mini' },
-  { task: 'deduplication', primary_model: 'openrouter/free', secondary_model: 'google/gemini-2.0-flash-exp:free', fallback_model: 'openai/gpt-4o-mini' },
-  { task: 'summarization', primary_model: 'openrouter/free', secondary_model: 'google/gemini-2.0-flash-exp:free', fallback_model: 'openai/gpt-4o-mini' },
-  { task: 'lead_qualification', primary_model: 'openrouter/free', secondary_model: 'google/gemini-2.0-flash-exp:free', fallback_model: 'openai/gpt-4o-mini' },
-  { task: 'agent_reasoning', primary_model: 'openrouter/free', secondary_model: 'google/gemini-2.0-flash-exp:free', fallback_model: 'openai/gpt-4o-mini' },
+  { task: 'research_planning', primary_model: 'openrouter/free', secondary_model: 'openai/gpt-4o-mini', fallback_model: 'openai/gpt-4o-mini' },
+  { task: 'query_generation', primary_model: 'openrouter/free', secondary_model: 'openai/gpt-4o-mini', fallback_model: 'openai/gpt-4o-mini' },
+  { task: 'data_extraction', primary_model: 'openrouter/free', secondary_model: 'openai/gpt-4o-mini', fallback_model: 'openai/gpt-4o-mini' },
+  { task: 'intent_detection', primary_model: 'openrouter/free', secondary_model: 'openai/gpt-4o-mini', fallback_model: 'huggingface/mistralai/Mistral-7B-Instruct-v0.3' },
+  { task: 'lead_scoring', primary_model: 'openrouter/free', secondary_model: 'openai/gpt-4o-mini', fallback_model: 'openai/gpt-4o-mini' },
+  { task: 'entity_matching', primary_model: 'openrouter/free', secondary_model: 'openai/gpt-4o-mini', fallback_model: 'openai/gpt-4o-mini' },
+  { task: 'deduplication', primary_model: 'openrouter/free', secondary_model: 'openai/gpt-4o-mini', fallback_model: 'openai/gpt-4o-mini' },
+  { task: 'summarization', primary_model: 'openrouter/free', secondary_model: 'openai/gpt-4o-mini', fallback_model: 'openai/gpt-4o-mini' },
+  { task: 'lead_qualification', primary_model: 'openrouter/free', secondary_model: 'openai/gpt-4o-mini', fallback_model: 'openai/gpt-4o-mini' },
+  { task: 'agent_reasoning', primary_model: 'openrouter/free', secondary_model: 'openai/gpt-4o-mini', fallback_model: 'openai/gpt-4o-mini' },
 ];
 
 export function classifyAIError(error: unknown, status?: number): AIErrorType {
@@ -82,6 +82,7 @@ export async function getProviderCandidates(task: string, settings = DEFAULT_REL
     add('openrouter', 'openrouter/free', freePool.filter((m) => m.provider === 'openrouter').map((m) => m.model).slice(0, 8));
   }
   for (const provider of active) {
+    if (provider.provider === 'gemini') continue;
     if (provider.provider === 'openrouter' && !settings.openrouter_enabled) continue;
     const modelsForProvider = modelOrder.filter((model) => model === provider.default_model || model.startsWith(`${provider.provider}/`));
     const preferred = modelsForProvider[0] ?? provider.default_model;
@@ -91,7 +92,7 @@ export async function getProviderCandidates(task: string, settings = DEFAULT_REL
   }
   for (const model of modelOrder) {
     const provider = model.split('/')[0] ?? 'openrouter';
-    add(provider === 'google' ? 'gemini' : provider, model, modelOrder.filter((m) => m !== model));
+    if (provider !== 'google' && provider !== 'gemini') add(provider, model, modelOrder.filter((m) => m !== model));
   }
   return candidates;
 }

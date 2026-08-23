@@ -81,7 +81,7 @@ Deno.serve(async (request) => {
   const payload = await request.json().catch(() => ({})); const action = String(payload.action ?? 'list');
 
   if (action === 'list') {
-    const { data, error } = await admin.from('admin_ai_providers').select('id,provider,enabled,api_key_masked,base_url,priority,default_model,fallback_enabled,max_requests,timeout_ms,retry_count,openrouter_auto_mode,model_fallback_chain,capabilities,cooldown_ms,daily_limit,routing_mode,updated_at').order('priority');
+    const { data, error } = await admin.from('admin_ai_providers').select('id,provider,enabled,api_key_masked,base_url,priority,default_model,fallback_enabled,max_requests,timeout_ms,retry_count,openrouter_auto_mode,model_fallback_chain,capabilities,cooldown_ms,daily_limit,routing_mode,updated_at').neq('provider', 'gemini').order('priority');
     if (error) return json({ error: error.message }, 500, request);
     return json({ providers: (data ?? []).map((p) => ({ ...p, has_key: Boolean(p.api_key_masked && p.api_key_masked.length > 0) })) }, 200, request);
   }

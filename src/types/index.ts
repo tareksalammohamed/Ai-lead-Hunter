@@ -737,7 +737,7 @@ export interface AIOrchestratorRequest {
   max_tokens?: number;
   temperature?: number;
   idempotency_key?: string;
-  simulate?: 'openrouter_failure' | 'gemini_failure' | 'timeout' | 'context_too_long';
+  simulate?: 'openrouter_failure' | 'timeout' | 'context_too_long';
 }
 
 export interface AIOrchestratorResponse {

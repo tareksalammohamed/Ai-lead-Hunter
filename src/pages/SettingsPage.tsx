@@ -35,7 +35,6 @@ const AI_PROVIDER_OPTIONS: { code: AIProviderCode; name: string; models: string[
   { code: 'cerebras', name: 'Cerebras', models: ['llama-3.3-70b', 'qwen-3-32b'] },
   { code: 'mistral', name: 'Mistral AI', models: ['mistral-small-latest', 'mistral-large-latest'] },
   { code: 'openai', name: 'OpenAI', models: ['gpt-4o-mini', 'gpt-4o'] },
-  { code: 'gemini', name: 'Google Gemini', models: ['gemini-2.5-flash'] },
   { code: 'anthropic', name: 'Anthropic', models: ['claude-3-5-haiku-latest'] },
 ];
 
