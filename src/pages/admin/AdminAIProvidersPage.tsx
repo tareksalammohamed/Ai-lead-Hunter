@@ -10,16 +10,17 @@ import {
   getAIModelRouter, updateAIModelRouter, removeAdminAIProviderKey,
 } from '@/lib/admin-services';
 import type { AdminAIProvider, AIModelRouter, AIProviderCode } from '@/types';
-import { Card, Button, Input, Toggle, Select, Skeleton, Badge } from '@/components/ui';
-import { Cpu, Brain, Save, Zap, CheckCircle2, XCircle, ArrowDown } from 'lucide-react';
+import { Card, Button, Input, Skeleton, Badge } from '@/components/ui';
+import { Cpu, Brain, Save, Zap } from 'lucide-react';
 
 export function AdminAIProvidersPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [providers, setProviders] = useState<AdminAIProvider[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState<Record<string, any>>({});
+  const [editing, setEditing] = useState<Record<string, { api_key_input?: string }>>({});
   const [testing, setTesting] = useState<string | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<Record<string, { success: boolean; message: string }>>({});
 
   const loadData = async () => {
     setLoading(true);
@@ -40,95 +41,77 @@ export function AdminAIProvidersPage() {
 
   const handleSave = async (id: string) => {
     if (!user) return;
-    const updates = editing[id];
-    if (!updates) return;
-    await updateAdminAIProvider(user.id, id, updates);
-    toast('تم حفظ المزود', 'success');
-    setEditing((p) => { const c = { ...p }; delete c[id]; return c; });
-    loadData();
-  };
-
-  const handleRemoveKey = async (id: string) => {
-    if (!user || !window.confirm('حذف مفتاح هذا المزود من قاعدة البيانات؟')) return;
-    try { await removeAdminAIProviderKey(user.id, id); toast('تم حذف المفتاح', 'success'); await loadData(); }
-    catch (error: any) { toast(error.message ?? 'تعذر حذف المفتاح', 'error'); }
+    const apiKey = editing[id]?.api_key_input?.trim();
+    if (!apiKey) return;
+    try {
+      await updateAdminAIProvider(user.id, id, { api_key_input: apiKey });
+      toast('تم حفظ مفتاح API بأمان', 'success');
+      setEditing((p) => { const c = { ...p }; delete c[id]; return c; });
+      setConnectionStatus((p) => { const c = { ...p }; delete c[id]; return c; });
+      await loadData();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'تعذر حفظ مفتاح API', 'error');
+    }
   };
 
   const handleTest = async (id: string) => {
     if (!user) return;
     setTesting(id);
     const result = await testAdminAIProvider(user.id, id);
+    setConnectionStatus((p) => ({ ...p, [id]: result }));
     toast(result.message, result.success ? 'success' : 'error');
     setTesting(null);
-  };
-
-  const update = (id: string, field: string, value: any) => {
-    setEditing((p) => ({ ...p, [id]: { ...p[id], [field]: value } }));
   };
 
   if (loading) return <div className="p-6"><Skeleton className="h-64" /></div>;
 
   return (
-    <div className="p-6 space-y-6 max-w-5xl mx-auto">
+    <div className="p-6 space-y-6 max-w-4xl mx-auto">
       <div>
         <h1 className="text-2xl font-bold" style={{ color: 'rgb(var(--text-primary))' }}>مزودو AI</h1>
-        <p className="text-sm mt-1" style={{ color: 'rgb(var(--text-muted))' }}>إدارة مزودي الذكاء الاصطناعي — المفاتيح محمية</p>
+        <p className="text-sm mt-1" style={{ color: 'rgb(var(--text-muted))' }}>أدخل مفتاح كل مزود واختبر الاتصال. لا توجد إعدادات مكررة لكل مزود.</p>
       </div>
 
-      {providers.map((p) => {
-        const e = editing[p.id] ?? {};
-        return (
-          <Card key={p.id} className="p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: p.enabled ? 'rgb(var(--success-soft))' : 'rgb(var(--bg-secondary))' }}>
-                  <Cpu className="w-5 h-5" style={{ color: p.enabled ? 'rgb(var(--success))' : 'rgb(var(--text-muted))' }} />
+      <div className="grid gap-4 md:grid-cols-2">
+        {providers.map((p) => {
+          const e = editing[p.id] ?? {};
+          const status = connectionStatus[p.id];
+          const providerNames: Record<string, string> = { openrouter: 'OpenRouter', grok: 'Grok (xAI)', groq: 'Groq', cerebras: 'Cerebras', mistral: 'Mistral AI' };
+          const statusLabel = status ? (status.success ? 'متصل' : 'فشل الاتصال') : p.has_key ? 'مفتاح محفوظ — لم يتم الاختبار' : 'غير مُعد';
+          const statusColor = status?.success ? 'rgb(var(--success))' : status && !status.success ? 'rgb(var(--danger))' : p.has_key ? 'rgb(var(--warning))' : 'rgb(var(--text-muted))';
+          return (
+            <Card key={p.id} className="p-5 space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgb(var(--accent-soft))' }}>
+                    <Cpu className="w-5 h-5" style={{ color: 'rgb(var(--accent))' }} />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="font-bold truncate" style={{ color: 'rgb(var(--text-primary))' }}>{providerNames[p.provider] ?? p.provider}</h3>
+                    <p className="text-sm mt-1" style={{ color: statusColor }}>{statusLabel}</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-bold" style={{ color: 'rgb(var(--text-primary))' }}>{({ openrouter: 'OpenRouter', grok: 'Grok (xAI)', groq: 'Groq', cerebras: 'Cerebras', mistral: 'Mistral AI' } as Record<string, string>)[p.provider] ?? p.provider}</h3>
-                  <p className="text-xs" style={{ color: 'rgb(var(--text-muted))' }}>الأولوية: {p.priority} · {p.default_model}</p>
-                  <p className="text-xs mt-1" style={{ color: p.has_key ? 'rgb(var(--success))' : 'rgb(var(--text-muted))' }}>{p.has_key ? 'مفتاح محفوظ في Supabase' : 'لم تتم إضافة مفتاح'}</p>
-                  {p.provider === 'openrouter' && <p className="text-xs mt-1" style={{ color: 'rgb(var(--accent))' }}>مفتاح واحد — اختيار وتبديل تلقائي بين النماذج المجانية داخل OpenRouter</p>}
-                </div>
+                <Badge variant={status?.success ? 'success' : status && !status.success ? 'danger' : 'default'}>{statusLabel}</Badge>
               </div>
-              <div className="flex items-center gap-2">
-                <Toggle checked={e.enabled ?? p.enabled} onChange={(v) => update(p.id, 'enabled', v)} />
-                <Badge variant={p.enabled ? 'success' : 'default'}>{p.enabled ? 'مفعل' : 'معطل'}</Badge>
-              </div>
-            </div>
 
-                          <div className="grid grid-cols-2 gap-3">
-              <Input label="مفتاح API — يُحفظ في Supabase فقط" type="password" placeholder={p.has_key ? 'مفتاح محفوظ — اكتب قيمة جديدة للاستبدال' : 'الصق مفتاح API هنا'} value={e.api_key_input ?? ''} onChange={(ev) => update(p.id, 'api_key_input', ev.target.value)} />
-              <Input label="Base URL" value={e.base_url ?? p.base_url ?? ''} onChange={(ev) => update(p.id, 'base_url', ev.target.value)} placeholder="https://..." />
-              <div className="rounded-xl p-3 text-sm col-span-2" style={{ background: 'rgb(var(--accent-soft))', color: 'rgb(var(--text-secondary))' }}>
-                <strong>{p.provider === 'openrouter' ? 'OpenRouter Free Router' : 'Smart Auto Model Switching'}</strong><br />
-                لا تحتاج إلى اختيار نموذج أو إضافة أكثر من مفتاح API واحد. سيختار التطبيق النموذج الافتراضي، ثم ينتقل تلقائياً إلى النماذج البديلة عند الفشل أو انتهاء الحد.
-              </div>
-              <Input label="الأولوية" type="number" value={e.priority ?? p.priority} onChange={(ev) => update(p.id, 'priority', Number(ev.target.value))} />
-              <Input label="الحد الأقصى للطلبات" type="number" value={e.max_requests ?? p.max_requests} onChange={(ev) => update(p.id, 'max_requests', Number(ev.target.value))} />
-              <Input label="المهلة (ms)" type="number" value={e.timeout_ms ?? p.timeout_ms} onChange={(ev) => update(p.id, 'timeout_ms', Number(ev.target.value))} />
-              <Input label="عدد المحاولات" type="number" value={e.retry_count ?? p.retry_count} onChange={(ev) => update(p.id, 'retry_count', Number(ev.target.value))} />
-              <div className="flex items-end">
-                <Toggle checked={e.fallback_enabled ?? p.fallback_enabled} onChange={(v) => update(p.id, 'fallback_enabled', v)} label="تفعيل البديل" />
-              </div>
-              {p.provider === 'openrouter' && <div className="col-span-2 rounded-xl p-3 text-sm" style={{ background: 'rgb(var(--accent-soft))', color: 'rgb(var(--text-secondary))' }}>
-                OpenRouter يستخدم مفتاح API واحداً فقط. عند تفعيل Auto Mode سيستخدم `openrouter/free` ويختار OpenRouter النموذج المجاني المتاح داخلياً، مع التبديل التلقائي عند فشل النموذج أو مزود الاستضافة. لا تحتاج إلى إدخال أسماء نماذج أو مفاتيح إضافية.
-              </div>}
-            </div>
+              <Input
+                label="مفتاح API"
+                type="password"
+                placeholder={p.has_key ? 'مفتاح محفوظ — اكتب قيمة جديدة للاستبدال' : 'الصق مفتاح API هنا'}
+                value={e.api_key_input ?? ''}
+                onChange={(ev) => setEditing((prev) => ({ ...prev, [p.id]: { api_key_input: ev.target.value } }))}
+              />
 
-            <div className="flex gap-2 justify-end mt-4">
-              <Button variant="secondary" onClick={() => handleTest(p.id)} disabled={testing === p.id}>
-                {testing === p.id ? <Zap className="w-4 h-4 animate-pulse" /> : <Zap className="w-4 h-4" />}
-                اختبار الاتصال
-              </Button>
-              {p.has_key && <Button variant="secondary" onClick={() => handleRemoveKey(p.id)}>حذف المفتاح</Button>}
-              {Object.keys(e).length > 0 && (
-                <Button onClick={() => handleSave(p.id)}><Save className="w-4 h-4" /> حفظ</Button>
-              )}
-            </div>
-          </Card>
-        );
-      })}
+              <div className="flex gap-2 justify-end">
+                {e.api_key_input?.trim() && <Button onClick={() => handleSave(p.id)}><Save className="w-4 h-4" /> حفظ</Button>}
+                <Button variant="secondary" onClick={() => handleTest(p.id)} disabled={testing === p.id}>
+                  <Zap className="w-4 h-4" /> {testing === p.id ? 'جارٍ الاختبار...' : 'اختبار الاتصال'}
+                </Button>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
     </div>
   );
 }
