@@ -407,10 +407,13 @@ export async function updateAdminAIProvider(actorId: string, id: string, updates
     await logAdminAction(actorId, 'ai_provider.update', 'ai_provider', id, { ...safeUpdates, key_changed: Boolean(apiKey) });
     return;
   }
+  if (apiKey || !isSupabaseConfigured) {
+    throw new Error('تخزين مفاتيح مزودي AI متاح فقط عبر Supabase الآمن.');
+  }
   const all = await dbGetAll<AdminAIProvider>('admin_ai_providers');
   const existing = all.find((p) => p.id === id); if (!existing) throw new Error('المزود غير موجود');
-  await dbPut('admin_ai_providers', { ...existing, ...safeUpdates, api_key_masked: apiKey ? `${apiKey.slice(0, 4)}••••••••${apiKey.slice(-4)}` : existing.api_key_masked, updated_at: nowISO() });
-  await logAdminAction(actorId, 'ai_provider.update', 'ai_provider', id, { ...safeUpdates, key_changed: Boolean(apiKey) });
+  await dbPut('admin_ai_providers', { ...existing, ...safeUpdates, updated_at: nowISO() });
+  await logAdminAction(actorId, 'ai_provider.update', 'ai_provider', id, { ...safeUpdates, key_changed: false });
 }
 
 export async function removeAdminAIProviderKey(actorId: string, id: string): Promise<void> {
@@ -478,8 +481,8 @@ export async function updateAdminSearchProvider(actorId: string, id: string, upd
   const all = await dbGetAll<AdminSearchProvider>('admin_search_providers');
   const existing = all.find((p) => p.id === id);
   if (!existing) throw new Error('المزود غير موجود');
-  if (updates.api_key_masked && updates.api_key_masked.length > 4) {
-    updates.api_key_masked = updates.api_key_masked.slice(0, 4) + '••••••••' + updates.api_key_masked.slice(-4);
+  if ('api_key_masked' in updates) {
+    throw new Error('مفاتيح مزودي البحث لا تُخزن محليًا؛ استخدم تكامل Supabase الآمن.');
   }
   await dbPut('admin_search_providers', { ...existing, ...updates, updated_at: nowISO() });
   await logAdminAction(actorId, 'search_provider.update', 'search_provider', id, updates);

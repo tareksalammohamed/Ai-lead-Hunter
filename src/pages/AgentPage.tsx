@@ -4,6 +4,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useToast } from '@/context/ToastContext';
 import {
   getCampaign, getJobs, createJob, executeJob, getJobSteps, cancelJob, getJob, generateResearchPlan,
@@ -84,6 +85,40 @@ export function AgentPage({ selectedCampaignId, onNavigate }: { selectedCampaign
       setLoading(false);
     })();
   }, [user, selectedCampaignId]);
+
+  // Realtime job/AI updates with polling retained as a resilience fallback.
+  useEffect(() => {
+    if (!user || !isSupabaseConfigured || !supabase) return;
+    const channel = supabase
+      .channel(`agent-mission-control-${user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'research_jobs', filter: `user_id=eq.${user.id}` }, async (payload) => {
+        const row = payload.new as ResearchJob;
+        if (!row?.id || row.user_id !== user.id) return;
+        setJobs((prev) => {
+          const next = prev.filter((j) => j.id !== row.id);
+          return [row, ...next].sort((a, b) => b.created_at.localeCompare(a.created_at));
+        });
+        if (activeJob?.id === row.id) {
+          setActiveJob(row);
+          const nextSteps = await getJobSteps(row.id);
+          setSteps(nextSteps);
+          addLog(`تحديث لحظي: ${STEP_LABELS[row.current_step] ?? row.status}`, 'info');
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'research_job_steps' }, async (payload) => {
+        const row = payload.new as ResearchJobStep;
+        if (!row?.job_id || !activeJob || row.job_id !== activeJob.id) return;
+        setSteps(await getJobSteps(activeJob.id));
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ai_runs', filter: `user_id=eq.${user.id}` }, (payload) => {
+        const row = payload.new as { job_id?: string; success?: boolean; provider?: string; model?: string };
+        if (row.job_id === activeJob?.id) {
+          addLog(`AI Run: ${row.provider ?? 'AI'} / ${row.model ?? 'model'} — ${row.success ? 'نجح' : 'فشل'}`, row.success ? 'success' : 'warning');
+        }
+      })
+      .subscribe();
+    return () => { if (supabase) void supabase.removeChannel(channel); };
+  }, [user?.id, activeJob?.id, addLog]);
 
   // Poll active job
   useEffect(() => {

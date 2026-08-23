@@ -1,0 +1,13 @@
+{
+  "release": "4.3",
+  "reviewed": "v4.2",
+  "static_security_flags": [],
+  "android_present": false,
+  "status": "passed",
+  "checks": [
+    "secret pattern scan",
+    "wildcard CORS scan",
+    "browser API-key encoding scan",
+    "Android exclusion"
+  ]
+}

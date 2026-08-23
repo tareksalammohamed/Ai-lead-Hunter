@@ -5,7 +5,7 @@ function corsHeaders(request: Request) {
   const origin = request.headers.get("Origin");
   const allowed = (Deno.env.get("ALLOWED_ORIGINS") ?? "").split(",").map((v) => v.trim()).filter(Boolean);
   return {
-    "Access-Control-Allow-Origin": origin && allowed.includes(origin) ? origin : (origin ? "" : "*"),
+    "Access-Control-Allow-Origin": origin ? (allowed.includes(origin) ? origin : "") : "",
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Vary": "Origin",

@@ -6,7 +6,7 @@ function corsHeaders(request: Request) {
   const origin = request.headers.get("Origin");
   const allowed = (Deno.env.get("ALLOWED_ORIGINS") ?? "").split(",").map((v) => v.trim()).filter(Boolean);
   return {
-    "Access-Control-Allow-Origin": origin && allowed.includes(origin) ? origin : (origin ? "" : "*"),
+    "Access-Control-Allow-Origin": origin ? (allowed.includes(origin) ? origin : "") : "",
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Vary": "Origin",
@@ -224,7 +224,7 @@ Deno.serve(async (request) => {
     if (existing) return json({ success: true, content: existing.output ?? '', structured: existing.structured_result, provider: existing.provider, model: existing.model, latency_ms: 0, usage: existing.token_usage ?? {}, checkpoint_id: existing.id, task_id: payload.task_id, recovered: true, events: ['Idempotency replay avoided duplicate work'] });
   }
 
-  const state = compactState(payload.input_state ?? {}); const candidates = await resolveCandidates(admin, payload);
+  let state = compactState(payload.input_state ?? {}); const candidates = await resolveCandidates(admin, payload);
   const maxRetries = payload.settings?.auto_retry === false ? 0 : Math.min(3, Math.max(0, Number(payload.settings?.max_retries ?? 2)));
   const events: string[] = []; let lastError = ''; let lastErrorType: ErrorType = 'UNKNOWN'; let previousProvider = '';
   for (let index = 0; index < candidates.length; index++) {

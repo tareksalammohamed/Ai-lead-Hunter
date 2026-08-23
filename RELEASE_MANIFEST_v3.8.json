@@ -1,0 +1,22 @@
+{
+  "release": "3.8",
+  "target": "Vercel + Capacitor",
+  "android_native_project": false,
+  "supabase": {
+    "security_advisor": "clean",
+    "realtime": [
+      "research_jobs",
+      "research_job_steps",
+      "ai_runs",
+      "ai_routing_events"
+    ],
+    "edge_functions": {
+      "ai-orchestrator": "v7",
+      "openrouter-model-discovery": "v3",
+      "admin-user-management": "v3",
+      "admin-provider-secrets": "v5"
+    },
+    "cors": "allowlist; configure CORS_ALLOWED_ORIGINS for production Vercel domains"
+  },
+  "integration": "Supabase Auth -> AI Orchestrator -> OpenRouter -> Research Jobs -> Realtime UI"
+}

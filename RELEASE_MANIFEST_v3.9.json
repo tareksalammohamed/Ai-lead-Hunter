@@ -1,0 +1,24 @@
+{
+  "release": "3.9",
+  "status": "final-hardened-source",
+  "target": "Vercel + Capacitor",
+  "android_native_project": false,
+  "verified_fixes": [
+    "LeadsPage TypeScript syntax error removed",
+    "Edge Function CORS now rejects unlisted browser origins",
+    "Browser-side base64 provider-key storage removed",
+    "OAuth-compatible COOP setting"
+  ],
+  "supabase": {
+    "security_advisor": "clean",
+    "realtime": [
+      "research_jobs",
+      "research_job_steps",
+      "ai_runs",
+      "ai_routing_events"
+    ],
+    "ai_orchestrator": "v7",
+    "openrouter_model_discovery": "v3"
+  },
+  "known_runtime_requirement": "Set ALLOWED_ORIGINS to the production Vercel origin(s) and Capacitor origin(s) before deployment."
+}

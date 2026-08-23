@@ -36,7 +36,8 @@ import {
 } from './db';
 import { scoreLead, extractLeadFromRaw, detectIntent, checkDuplicate, resolveEntities } from './ai-engine';
 import { orchestrateAI, saveCheckpoint } from './ai-orchestrator';
-import { getConnector, generateSearchQueries } from './connectors';
+import { getConnector, generateSearchQueries, type ConnectorResult } from './connectors';
+import { supabase, isSupabaseConfigured } from './supabase';
 
 // ---- Sources (static seed) ----
 const SEED_SOURCES: Source[] = [
@@ -138,6 +139,8 @@ export async function duplicateCampaign(userId: string, id: string): Promise<Cam
 }
 
 export async function deleteCampaign(userId: string, id: string): Promise<void> {
+  const existing = await getCampaign(userId, id);
+  if (!existing) return;
   await dbDelete('campaigns', id);
   const jobs = await getJobs(userId);
   for (const job of jobs.filter((j) => j.campaign_id === id)) {
@@ -160,23 +163,23 @@ export async function setCampaignStatus(userId: string, id: string, status: Camp
 // ---- Source Connections ----
 export async function getSourceConnections(userId: string): Promise<SourceConnection[]> {
   const all = await dbGetAll<SourceConnection>('source_connections');
-  return all.filter((c) => c.user_id === userId);
+  return all.filter((c) => c.user_id === userId).map((c) => ({ ...c, credentials: {} }));
 }
 
 export async function createSourceConnection(userId: string, sourceId: string, name: string, credentials: Record<string, string>): Promise<SourceConnection> {
-  const conn: SourceConnection = {
-    id: generateId(),
-    user_id: userId,
-    source_id: sourceId,
-    name,
-    credentials,
-    status: 'untested',
-    created_at: nowISO(),
-    updated_at: nowISO(),
-  };
-  await dbPut('source_connections', conn);
-  await logAudit(userId, 'source.connect', 'source_connection', conn.id, { source_id: sourceId });
-  return conn;
+  if (isSupabaseConfigured && supabase) {
+    const source = SEED_SOURCES.find((x) => x.id === sourceId);
+    if (!source) throw new Error('المصدر غير موجود');
+    const { data, error } = await supabase.functions.invoke('source-connector-proxy-v2', {
+      body: { action: 'create', source_id: sourceId, source_code: source.code, name, credentials },
+    });
+    if (error || !data?.success) throw error ?? new Error(data?.error ?? 'تعذر حفظ اتصال المصدر');
+    const created = await dbGet<SourceConnection>('source_connections', data.connection_id);
+    if (!created) throw new Error('تعذر قراءة الاتصال بعد إنشائه');
+    await logAudit(userId, 'source.connect', 'source_connection', created.id, { source_id: sourceId });
+    return { ...created, credentials: {} };
+  }
+  throw new Error('حفظ مفاتيح المصادر يتطلب اتصال Supabase آمن');
 }
 
 export async function updateSourceConnection(userId: string, id: string, updates: Partial<SourceConnection>): Promise<void> {
@@ -199,6 +202,13 @@ export async function testSourceConnection(userId: string, id: string): Promise<
   if (!source) return { success: false, message: 'المصدر غير موجود' };
   const connector = getConnector(source.code);
   if (!connector) return { success: false, message: 'الموصل غير متوفر' };
+  if (isSupabaseConfigured && supabase) {
+    const { data, error } = await supabase.functions.invoke('source-connector-proxy-v2', { body: { action: 'test', connection_id: id } });
+    const result = error ? { success: false, message: error.message } : { success: Boolean(data?.success), message: String(data?.message ?? 'انتهى الاختبار') };
+    await updateSourceConnection(userId, id, { status: result.success ? 'connected' : 'error', last_tested_at: nowISO(), last_test_result: result.message });
+    await logAudit(userId, 'source.test', 'source_connection', id, { success: result.success });
+    return result;
+  }
   const result = await connector.testConnection(conn.credentials);
   await updateSourceConnection(userId, id, {
     status: result.success ? 'connected' : 'error',
@@ -216,20 +226,10 @@ export async function getAIProviders(userId: string): Promise<AIProvider[]> {
 }
 
 export async function createAIProvider(userId: string, provider: AIProvider['provider'], model: string, apiKey: string, priority: number): Promise<AIProvider> {
-  const p: AIProvider = {
-    id: generateId(),
-    user_id: userId,
-    provider,
-    model,
-    api_key_encrypted: btoa(apiKey),
-    priority,
-    is_active: true,
-    created_at: nowISO(),
-    updated_at: nowISO(),
-  };
-  await dbPut('ai_providers', p);
-  await logAudit(userId, 'ai_provider.create', 'ai_provider', p.id, { provider, model });
-  return p;
+  if (isSupabaseConfigured && supabase) {
+    throw new Error('AI provider keys must be stored through the secure admin-provider-secrets Edge Function.');
+  }
+  throw new Error('AI provider key storage is disabled outside the secure Supabase integration.');
 }
 
 export async function updateAIProvider(userId: string, id: string, updates: Partial<AIProvider>): Promise<void> {
@@ -414,6 +414,11 @@ export const JOB_STEPS: JobStepName[] = [
 ];
 
 export async function createJob(userId: string, campaign: Campaign): Promise<ResearchJob> {
+  // Prevent duplicate active jobs for the same campaign. The DB partial unique
+  // index is the final race-safe guard; this lookup provides a friendly fast path.
+  const existingJobs = await getJobs(userId);
+  const active = existingJobs.find((j) => j.campaign_id === campaign.id && ['queued', 'running', 'recovering', 'paused'].includes(j.status));
+  if (active) return active;
   const plan = generateResearchPlan(campaign);
   const job: ResearchJob = {
     id: generateId(),
@@ -431,7 +436,15 @@ export async function createJob(userId: string, campaign: Campaign): Promise<Res
     created_at: nowISO(),
     updated_at: nowISO(),
   };
-  await dbPut('research_jobs', job);
+  try {
+    await dbPut('research_jobs', job);
+  } catch (error) {
+    // A concurrent request may have won the active-job unique index.
+    const latest = await getJobs(userId);
+    const concurrent = latest.find((j) => j.campaign_id === campaign.id && ['queued', 'running', 'recovering', 'paused'].includes(j.status));
+    if (concurrent) return concurrent;
+    throw error;
+  }
 
   const steps: ResearchJobStep[] = JOB_STEPS.map((name, idx) => ({
     id: generateId(),
@@ -553,8 +566,13 @@ export async function executeJob(
           const src = SEED_SOURCES.find((s) => s.id === c.source_id);
           return src?.code === sq.source;
         });
-        const credentials = conn?.credentials ?? {};
-        const result = await connector.search(sq, credentials);
+        let result: ConnectorResult;
+        if (isSupabaseConfigured && supabase && conn) {
+          const { data, error } = await supabase.functions.invoke('source-connector-proxy-v2', { body: { action: 'search', connection_id: conn.id, job_id: jobId, query: sq } });
+          result = error ? { rawRecords: [], error: error.message } : { rawRecords: (data?.records ?? []) as ConnectorResult['rawRecords'] };
+        } else {
+          result = { rawRecords: [], error: 'اتصال المصدر غير متاح' };
+        }
         if (result.error) {
           searchErrors++;
           await logAudit(userId, 'connector.error', 'search_query', sq.id, { source: sq.source, error: result.error });
