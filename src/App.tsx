@@ -94,7 +94,7 @@ function AppContent() {
         {adminPage === 'dashboard' && <AdminDashboardPage />}
         {adminPage === 'users' && <AdminUsersPage />}
         {adminPage === 'roles' && <AdminRolesPage />}
-        {adminPage === 'settings' && <AdminSettingsPage />}
+        {adminPage === 'settings' && <AdminSettingsPage onNavigate={setAdminPage} />}
         {adminPage === 'ai_providers' && <AdminAIProvidersPage />}
         {adminPage === 'ai_models' && <AdminAIModelsPage />}
         {adminPage === 'ai_reliability' && <AdminAIReliabilityPage />}

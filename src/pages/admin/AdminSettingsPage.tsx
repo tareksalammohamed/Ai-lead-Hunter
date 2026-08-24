@@ -7,15 +7,16 @@ import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { getSystemConfigs, updateSystemConfig, resetConfigToDefault, getConfigHistory } from '@/lib/admin-services';
 import type { SystemConfig, ConfigChange, ConfigSection } from '@/types';
+import type { AdminPageKey } from '@/components/AdminLayout';
 import { Card, Button, Input, Toggle, Modal, Skeleton, Badge } from '@/components/ui';
-import { Settings, Save, RotateCcw, History, Search } from 'lucide-react';
+import { Settings, Save, RotateCcw, History, Search, Cpu, Plug, Activity, Shield, Bell } from 'lucide-react';
 
 const SECTION_LABELS: Record<ConfigSection, string> = {
   general: 'عام', application: 'التطبيق', research: 'البحث', ai: 'AI',
   search: 'البحث', leads: 'العملاء', security: 'الأمان', notifications: 'الإشعارات', limits: 'الحدود',
 };
 
-export function AdminSettingsPage() {
+export function AdminSettingsPage({ onNavigate }: { onNavigate?: (page: AdminPageKey) => void } = {}) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [configs, setConfigs] = useState<SystemConfig[]>([]);
@@ -71,6 +72,8 @@ export function AdminSettingsPage() {
         <h1 className="text-2xl font-bold" style={{ color: 'rgb(var(--text-primary))' }}>إعدادات النظام</h1>
         <p className="text-sm mt-1" style={{ color: 'rgb(var(--text-muted))' }}>إعدادات مركزية تتحكم في النظام بالكامل</p>
       </div>
+
+      <Card className="p-5"><div className="flex items-center gap-2 mb-4"><Settings className="w-5 h-5" style={{ color: 'rgb(var(--accent))' }} /><div><h2 className="font-bold" style={{ color: 'rgb(var(--text-primary))' }}>مركز الإعدادات الموحد</h2><p className="text-sm mt-1" style={{ color: 'rgb(var(--text-muted))' }}>كل إعدادات التطبيق مرتبة حسب نوعها من مكان واحد.</p></div></div><div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">{([{ page: 'ai_providers', title: 'الذكاء الاصطناعي والمفاتيح', description: 'إضافة واختبار مفاتيح OpenRouter وGroq وCerebras وMistral.', icon: Cpu }, { page: 'source_connectors', title: 'المصادر والتكاملات', description: 'إدارة موصلات LinkedIn وباقي مصادر البحث.', icon: Plug }, { page: 'research_engine', title: 'محرك البحث', description: 'الحدود والمهل والتوازي وسلوك البحث.', icon: Activity }, { page: 'security', title: 'الأمان والصلاحيات', description: 'الأمان والأدوار وصلاحيات الإدارة.', icon: Shield }, { page: 'notifications', title: 'الإشعارات', description: 'إعدادات التنبيهات وإشعارات النظام.', icon: Bell }] as const).map(({ page, title, description, icon: Icon }) => <button key={page} onClick={() => onNavigate?.(page)} className="text-right rounded-xl p-4 transition-all" style={{ background: 'rgb(var(--bg-secondary))', border: '1px solid rgb(var(--border))' }}><div className="flex items-center gap-2 mb-2"><Icon className="w-4 h-4" style={{ color: 'rgb(var(--accent))' }} /><span className="font-semibold" style={{ color: 'rgb(var(--text-primary))' }}>{title}</span></div><p className="text-xs" style={{ color: 'rgb(var(--text-muted))' }}>{description}</p></button>)}</div></Card>
 
       {/* Section tabs */}
       <div className="flex gap-1 overflow-x-auto pb-1">
