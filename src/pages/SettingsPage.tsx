@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import {
-  getSources, getSourceConnections, createSourceConnection, deleteSourceConnection,
+  getSources, getSourceConnections, createSourceConnection, startOAuthConnection, deleteSourceConnection,
   testSourceConnection, getAIProviders, createAIProvider, deleteAIProvider, updateAIProvider,
   getSettings, updateSettings, getProfile, updateProfile,
 } from '@/lib/services';
@@ -57,6 +57,7 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
   const [connName, setConnName] = useState('');
   const [connCreds, setConnCreds] = useState<Record<string, string>>({});
   const [testing, setTesting] = useState<string | null>(null);
+  const [oauthConnecting, setOAuthConnecting] = useState<'linkedin' | 'facebook' | null>(null);
 
   // AI Providers
   const [aiProviders, setAIProviders] = useState<AIProvider[]>([]);
@@ -101,10 +102,25 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
 
   const handleCreateConnection = async () => {
     if (!user || !connSource || !connName) return;
-    await createSourceConnection(user.id, connSource, connName, connCreds);
-    toast('تم إضافة الاتصال', 'success');
-    setShowConnModal(false); setConnSource(''); setConnName(''); setConnCreds({});
-    reloadConnections();
+    try {
+      await createSourceConnection(user.id, connSource, connName, connCreds);
+      toast('تم إضافة الاتصال', 'success');
+      setShowConnModal(false); setConnSource(''); setConnName(''); setConnCreds({});
+      reloadConnections();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'تعذر إضافة الاتصال', 'error');
+    }
+  };
+
+  const handleOAuthConnect = async (provider: 'linkedin' | 'facebook') => {
+    setOAuthConnecting(provider);
+    try {
+      const result = await startOAuthConnection(provider);
+      window.location.assign(result.authorization_url);
+    } catch (error) {
+      setOAuthConnecting(null);
+      toast(error instanceof Error ? error.message : 'تعذر بدء ربط الحساب', 'error');
+    }
   };
 
   const handleTestConnection = async (id: string) => {
@@ -383,14 +399,34 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
             {connSource && (() => {
               const src = sources.find((s) => s.id === connSource);
               if (!src) return null;
-              const fields = src.auth_type === 'api_key' ? ['api_key'] : src.auth_type === 'oauth' ? ['access_token'] : [];
+              if (src.auth_type === 'oauth' && (src.code === 'linkedin' || src.code === 'facebook')) {
+                const providerLabel = src.code === 'linkedin' ? 'LinkedIn' : 'Facebook';
+                return (
+                  <div className="space-y-3 rounded-xl p-4" style={{ background: 'rgb(var(--accent-soft))' }}>
+                    <div className="flex items-start gap-2">
+                      <ShieldCheck className="w-4 h-4 mt-0.5" style={{ color: 'rgb(var(--accent))' }} />
+                      <p className="text-sm" style={{ color: 'rgb(var(--text-secondary))' }}>
+                        سيتم فتح صفحة {providerLabel} الرسمية للموافقة. لن نطلب منك نسخ Access Token، ولن يظهر الرمز داخل التطبيق.
+                      </p>
+                    </div>
+                    <Button onClick={() => handleOAuthConnect(src.code as 'linkedin' | 'facebook')} disabled={oauthConnecting !== null}>
+                      {oauthConnecting === src.code ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plug className="w-4 h-4" />}
+                      ربط حساب {providerLabel} عبر OAuth
+                    </Button>
+                  </div>
+                );
+              }
+              const fields = src.auth_type === 'api_key' ? ['api_key'] : [];
               return fields.map((f) => (
-                <Input key={f} label={f === 'api_key' ? 'API Key' : 'Access Token'} type="password" value={connCreds[f] ?? ''} onChange={(e) => setConnCreds({ ...connCreds, [f]: e.target.value })} />
+                <Input key={f} label="API Key" type="password" value={connCreds[f] ?? ''} onChange={(e) => setConnCreds({ ...connCreds, [f]: e.target.value })} />
               ));
             })()}
             <div className="flex gap-2 justify-end">
               <Button variant="secondary" onClick={() => setShowConnModal(false)}>إلغاء</Button>
-              <Button onClick={handleCreateConnection}>إضافة</Button>
+              {(() => {
+                const src = sources.find((s) => s.id === connSource);
+                return src?.auth_type !== 'oauth' ? <Button onClick={handleCreateConnection}>إضافة</Button> : null;
+              })()}
             </div>
           </div>
         </Modal>

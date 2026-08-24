@@ -68,6 +68,48 @@ async function run(sourceCode: string, query: Record<string, unknown>, credentia
     }
     throw new Error("LinkedIn search requires an approved LinkedIn Partner/API product; token validation succeeded but search permission is unavailable");
   }
+  if (sourceCode === "facebook") {
+    const token = credentials.access_token ?? credentials.api_key;
+    if (!token) throw new Error("Facebook Access Token missing");
+    const profileUrl = new URL("https://graph.facebook.com/me");
+    profileUrl.search = new URLSearchParams({ fields: "id,name,email", access_token: token }).toString();
+    const profileResponse = await fetch(profileUrl);
+    if (!profileResponse.ok) throw new Error(`Facebook token validation failed (${profileResponse.status})`);
+    if (query.test === true) return [];
+
+    const pagesUrl = new URL("https://graph.facebook.com/me/accounts");
+    pagesUrl.search = new URLSearchParams({
+      fields: "id,name,link,about,category,location,phone,website",
+      access_token: token,
+      limit: "100",
+    }).toString();
+    const pagesResponse = await fetch(pagesUrl);
+    const pagesData = await pagesResponse.json().catch(() => ({}));
+    if (!pagesResponse.ok) throw new Error(`Facebook Pages API failed (${pagesResponse.status})`);
+    const needle = String(query.query ?? "").toLocaleLowerCase();
+    return (pagesData.data ?? [])
+      .filter((page: Record<string, unknown>) => {
+        if (!needle) return true;
+        return [page.name, page.about, (page.location as Record<string, unknown> | undefined)?.city]
+          .filter(Boolean).join(" ").toLocaleLowerCase().includes(needle);
+      })
+      .map((page: Record<string, unknown>) => ({
+        job_id: query.job_id,
+        source_code: sourceCode,
+        source_url: String(page.link ?? `https://facebook.com/${page.id ?? ""}`),
+        data: {
+          name: page.name ?? "",
+          business_name: page.name ?? "",
+          content: page.about ?? "",
+          phone: page.phone ?? "",
+          website: page.website ?? "",
+          city: (page.location as Record<string, unknown> | undefined)?.city ?? query.location ?? "",
+          source_url: page.link ?? "",
+          source_type: "facebook_page",
+        },
+        normalized: false,
+      }));
+  }
   if (sourceCode === "web_search") {
     if (!credentials.api_key) throw new Error("Search API key missing");
     const response = await fetch("https://api.tavily.com/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ api_key: credentials.api_key, query: query.query, max_results: 10 }) });
@@ -98,7 +140,7 @@ Deno.serve(async (request) => {
     if (action === "create") {
       const id = crypto.randomUUID();
       const encrypted = await encrypt(payload.credentials ?? {});
-      const { error } = await admin.from("source_connections").insert({ id, user_id: user.id, source_id: String(payload.source_id ?? ""), source_code: String(payload.source_code ?? ""), name: String(payload.name ?? payload.source_code ?? "Connection"), credentials: null, credentials_encrypted: encrypted, status: "untested" });
+      const { error } = await admin.from("source_connections").insert({ id, user_id: user.id, source_id: String(payload.source_id ?? ""), source_code: String(payload.source_code ?? ""), name: String(payload.name ?? payload.source_code ?? "Connection"), credentials: {}, credentials_encrypted: encrypted, status: "untested" });
       if (error) throw error;
       await admin.from("source_connection_secrets").upsert({ connection_id: id, user_id: user.id, credentials_encrypted: encrypted, updated_at: new Date().toISOString() });
       return json({ success: true, connection_id: id }, 200, request);
@@ -111,7 +153,7 @@ Deno.serve(async (request) => {
     const credentials = await decrypt(current.credentials_encrypted);
     if (action === "test") {
       await run(String(current.source_code ?? ""), { test: true, query: "test" }, credentials);
-      await admin.from("source_connections").update({ status: "active", last_test: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", id).eq("user_id", user.id);
+      await admin.from("source_connections").update({ status: "connected", last_tested_at: new Date().toISOString(), last_test_result: "Connection verified", updated_at: new Date().toISOString() }).eq("id", id).eq("user_id", user.id);
       return json({ success: true, message: "Connection verified" }, 200, request);
     }
     if (action === "search") {

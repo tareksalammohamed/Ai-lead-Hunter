@@ -161,9 +161,50 @@ export async function setCampaignStatus(userId: string, id: string, status: Camp
 }
 
 // ---- Source Connections ----
+const SAFE_SOURCE_CONNECTION_FIELDS = 'id,user_id,source_id,source_code,external_account_id,name,status,last_tested_at,last_test_result,created_at,updated_at';
+
+async function getSourceConnectionMetadata(id: string, userId: string): Promise<SourceConnection | null> {
+  if (isSupabaseConfigured && supabase) {
+    const { data, error } = await supabase.from('source_connections').select(SAFE_SOURCE_CONNECTION_FIELDS).eq('id', id).eq('user_id', userId).maybeSingle();
+    if (error) throw error;
+    return data ? { ...(data as SourceConnection), credentials: {} } : null;
+  }
+  const local = await dbGet<SourceConnection>('source_connections', id);
+  return local?.user_id === userId ? { ...local, credentials: {} } : null;
+}
+
 export async function getSourceConnections(userId: string): Promise<SourceConnection[]> {
+  if (isSupabaseConfigured && supabase) {
+    const { data, error } = await supabase.from('source_connections').select(SAFE_SOURCE_CONNECTION_FIELDS).eq('user_id', userId).order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map((connection) => ({ ...(connection as SourceConnection), credentials: {} }));
+  }
   const all = await dbGetAll<SourceConnection>('source_connections');
   return all.filter((c) => c.user_id === userId).map((c) => ({ ...c, credentials: {} }));
+}
+
+export async function startOAuthConnection(provider: 'linkedin' | 'facebook'): Promise<{ authorization_url: string; expires_at: string }> {
+  if (!isSupabaseConfigured || !supabase) throw new Error('ربط OAuth يتطلب اتصال Supabase آمن');
+  const redirectUri = `${window.location.origin}/oauth/${provider}/callback`;
+  const { data, error } = await supabase.functions.invoke('social-oauth', {
+    body: { action: 'start', provider, redirect_uri: redirectUri },
+  });
+  if (error || !data?.success || typeof data.authorization_url !== 'string') {
+    throw error ?? new Error(data?.error ?? 'تعذر بدء تسجيل الدخول عبر OAuth');
+  }
+  return { authorization_url: data.authorization_url, expires_at: String(data.expires_at ?? '') };
+}
+
+export async function completeOAuthConnection(provider: 'linkedin' | 'facebook', code: string, state: string): Promise<{ connection_id: string; account_name: string }> {
+  if (!isSupabaseConfigured || !supabase) throw new Error('إكمال OAuth يتطلب اتصال Supabase آمن');
+  const redirectUri = `${window.location.origin}/oauth/${provider}/callback`;
+  const { data, error } = await supabase.functions.invoke('social-oauth', {
+    body: { action: 'callback', provider, code, state, redirect_uri: redirectUri },
+  });
+  if (error || !data?.success || typeof data.connection_id !== 'string') {
+    throw error ?? new Error(data?.error ?? 'تعذر إكمال ربط OAuth');
+  }
+  return { connection_id: data.connection_id, account_name: String(data.account_name ?? '') };
 }
 
 export async function createSourceConnection(userId: string, sourceId: string, name: string, credentials: Record<string, string>): Promise<SourceConnection> {
@@ -174,38 +215,48 @@ export async function createSourceConnection(userId: string, sourceId: string, n
       body: { action: 'create', source_id: sourceId, source_code: source.code, name, credentials },
     });
     if (error || !data?.success) throw error ?? new Error(data?.error ?? 'تعذر حفظ اتصال المصدر');
-    const created = await dbGet<SourceConnection>('source_connections', data.connection_id);
+    const created = await getSourceConnectionMetadata(data.connection_id, userId);
     if (!created) throw new Error('تعذر قراءة الاتصال بعد إنشائه');
     await logAudit(userId, 'source.connect', 'source_connection', created.id, { source_id: sourceId });
-    return { ...created, credentials: {} };
+    return created;
   }
   throw new Error('حفظ مفاتيح المصادر يتطلب اتصال Supabase آمن');
 }
 
 export async function updateSourceConnectionCredentials(userId: string, id: string, credentials: Record<string, string>, name?: string): Promise<void> {
-  const existing = await dbGet<SourceConnection>('source_connections', id);
-  if (!existing || existing.user_id !== userId) throw new Error('الاتصال غير موجود');
+  const existing = await getSourceConnectionMetadata(id, userId);
+  if (!existing) throw new Error('الاتصال غير موجود');
   if (!isSupabaseConfigured || !supabase) throw new Error('حفظ مفاتيح المصادر يتطلب اتصال Supabase آمن');
   const { data, error } = await supabase.functions.invoke('source-connector-proxy-v2', { body: { action: 'update', connection_id: id, credentials, name: name ?? existing.name } });
   if (error || !data?.success) throw error ?? new Error(data?.error ?? 'تعذر تحديث اتصال المصدر');
 }
 
 export async function updateSourceConnection(userId: string, id: string, updates: Partial<SourceConnection>): Promise<void> {
-  const existing = await dbGet<SourceConnection>('source_connections', id);
-  if (!existing || existing.user_id !== userId) return;
+  const existing = await getSourceConnectionMetadata(id, userId);
+  if (!existing) return;
+  if (isSupabaseConfigured && supabase) {
+    const { error } = await supabase.from('source_connections').update({ ...updates, credentials: undefined }).eq('id', id).eq('user_id', userId);
+    if (error) throw error;
+    return;
+  }
   await dbPut('source_connections', { ...existing, ...updates, updated_at: nowISO() });
 }
 
 export async function deleteSourceConnection(userId: string, id: string): Promise<void> {
-  const existing = await dbGet<SourceConnection>('source_connections', id);
-  if (!existing || existing.user_id !== userId) return;
-  await dbDelete('source_connections', id);
+  const existing = await getSourceConnectionMetadata(id, userId);
+  if (!existing) return;
+  if (isSupabaseConfigured && supabase) {
+    const { error } = await supabase.from('source_connections').delete().eq('id', id).eq('user_id', userId);
+    if (error) throw error;
+  } else {
+    await dbDelete('source_connections', id);
+  }
   await logAudit(userId, 'source.disconnect', 'source_connection', id, {});
 }
 
 export async function testSourceConnection(userId: string, id: string): Promise<{ success: boolean; message: string }> {
-  const conn = await dbGet<SourceConnection>('source_connections', id);
-  if (!conn || conn.user_id !== userId) return { success: false, message: 'الاتصال غير موجود' };
+  const conn = await getSourceConnectionMetadata(id, userId);
+  if (!conn) return { success: false, message: 'الاتصال غير موجود' };
   const source = SEED_SOURCES.find((s) => s.id === conn.source_id);
   if (!source) return { success: false, message: 'المصدر غير موجود' };
   const connector = getConnector(source.code);

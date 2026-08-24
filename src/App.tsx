@@ -16,6 +16,7 @@ import { LeadsPage } from '@/pages/LeadsPage';
 import { LeadProfilePage } from '@/pages/LeadProfilePage';
 import { AnalyticsPage } from '@/pages/AnalyticsPage';
 import { SettingsPage } from '@/pages/SettingsPage';
+import { OAuthCallbackPage } from '@/pages/OAuthCallbackPage';
 import { AdminDashboardPage } from '@/pages/admin/AdminDashboardPage';
 import { AdminUsersPage } from '@/pages/admin/AdminUsersPage';
 import { AdminRolesPage } from '@/pages/admin/AdminRolesPage';
@@ -77,6 +78,11 @@ function AppContent() {
         </div>
       </div>
     );
+  }
+
+  const isOAuthCallback = /^\/oauth\/(linkedin|facebook)\/callback\/?$/.test(window.location.pathname);
+  if (isOAuthCallback && user && !isRecoverySession) {
+    return <OAuthCallbackPage />;
   }
 
   if (!user || isRecoverySession) {

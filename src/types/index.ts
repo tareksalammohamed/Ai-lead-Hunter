@@ -132,6 +132,7 @@ export interface SourceConnection {
   user_id: string;
   source_id: string;
   source_code?: SourceCode;
+  external_account_id?: string;
   name: string;
   credentials: Record<string, string>;
   status: ConnectionStatus;
