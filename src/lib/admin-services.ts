@@ -460,6 +460,29 @@ export async function updateAIModelRouter(actorId: string, task: string, updates
 // SEARCH PROVIDERS
 // ============================================================
 
+export async function getSecureSearchProviders(actorId: string): Promise<AdminSearchProvider[]> {
+  await requirePermission(actorId, 'manage_sources');
+  if (!supabase) throw new Error('حفظ مفاتيح البحث يحتاج Supabase');
+  const { data, error } = await supabase.functions.invoke('admin-provider-secrets', { body: { action: 'search_list' } });
+  if (error) throw error;
+  return (data?.providers ?? []) as AdminSearchProvider[];
+}
+
+export async function saveSecureSearchProviderKey(actorId: string, id: string, apiKey: string): Promise<void> {
+  await requirePermission(actorId, 'manage_sources');
+  if (!supabase) throw new Error('حفظ مفاتيح البحث يحتاج Supabase');
+  const { data, error } = await supabase.functions.invoke('admin-provider-secrets', { body: { action: 'search_save', search_provider_id: id, api_key: apiKey } });
+  if (error || !data?.success) throw error ?? new Error(data?.error ?? 'تعذر حفظ مفتاح مزود البحث');
+}
+
+export async function testSecureSearchProvider(actorId: string, id: string): Promise<{ success: boolean; message: string }> {
+  await requirePermission(actorId, 'manage_sources');
+  if (!supabase) throw new Error('اختبار مزود البحث يحتاج Supabase');
+  const { data, error } = await supabase.functions.invoke('admin-provider-secrets', { body: { action: 'search_test', search_provider_id: id } });
+  if (error) return { success: false, message: error.message };
+  return { success: Boolean(data?.success), message: String(data?.message ?? 'انتهى الاختبار') };
+}
+
 export async function getAdminSearchProviders(): Promise<AdminSearchProvider[]> {
   await initAdminData();
   const existing = await dbGetAll<AdminSearchProvider>('admin_search_providers');

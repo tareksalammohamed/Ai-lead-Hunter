@@ -86,6 +86,36 @@ Deno.serve(async (request) => {
     return json({ providers: (data ?? []).map((p) => ({ ...p, has_key: Boolean(p.api_key_masked && p.api_key_masked.length > 0) })) }, 200, request);
   }
 
+  if (action === 'search_list') {
+    const { data, error } = await admin.from('admin_search_providers').select('id,name,enabled,api_key_masked,priority,daily_limit,requests_per_minute,timeout_ms,fallback_enabled,updated_at').order('priority');
+    if (error) return json({ error: error.message }, 500, request);
+    return json({ providers: data ?? [] }, 200, request);
+  }
+
+  if (action === 'search_save' || action === 'search_test') {
+    const searchProviderId = String(payload.search_provider_id ?? '');
+    if (!searchProviderId) return json({ error: 'search_provider_id مطلوب' }, 400, request);
+    const { data: searchProvider } = await admin.from('admin_search_providers').select('id,name,enabled,api_key_encrypted,api_key_masked').eq('id', searchProviderId).maybeSingle();
+    if (!searchProvider) return json({ error: 'مزود البحث غير موجود' }, 404, request);
+    if (action === 'search_save') {
+      const raw = String(payload.api_key ?? '').trim(); if (raw.length < 8) return json({ error: 'أدخل مفتاح بحث صحيحاً' }, 400, request);
+      const masked = `${raw.slice(0, 4)}••••••••${raw.slice(-4)}`;
+      const encrypted = await encryptSecret(raw, secret);
+      const { error } = await admin.from('admin_search_providers').update({ api_key_encrypted: encrypted, api_key_masked: masked, enabled: true, updated_at: new Date().toISOString() }).eq('id', searchProviderId);
+      if (error) return json({ error: error.message }, 500, request);
+      return json({ success: true, search_provider_id: searchProviderId, api_key_masked: masked }, 200, request);
+    }
+    if (!searchProvider.api_key_encrypted) return json({ success: false, message: 'لم تتم إضافة مفتاح لهذا المزود' }, 200, request);
+    const raw = await decryptSecret(searchProvider.api_key_encrypted, secret);
+    let response: Response;
+    if (searchProvider.name.toLowerCase() === 'tavily') response = await fetch('https://api.tavily.com/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: raw, query: 'test', max_results: 1 }) });
+    else if (searchProvider.name.toLowerCase() === 'serper') response = await fetch('https://google.serper.dev/search', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-KEY': raw }, body: JSON.stringify({ q: 'test' }) });
+    else if (searchProvider.name.toLowerCase() === 'bing') response = await fetch('https://api.bing.microsoft.com/v7.0/search?q=test', { headers: { 'Ocp-Apim-Subscription-Key': raw } });
+    else return json({ success: false, message: `${searchProvider.name} يحتاج إعداد Search Engine ID/CX إضافي` }, 200, request);
+    const detail = response.ok ? '' : (await response.text()).slice(0, 300);
+    return json({ success: response.ok, message: response.ok ? `تم الاتصال بنجاح عبر ${searchProvider.name}` : `فشل الاتصال (${response.status})${detail ? `: ${detail}` : ''}` }, 200, request);
+  }
+
   const providerId = String(payload.provider_id ?? '');
   if (!providerId) return json({ error: 'provider_id مطلوب' }, 400, request);
   const { data: provider } = await admin.from('admin_ai_providers').select('id,provider,default_model,api_key_encrypted').eq('id', providerId).maybeSingle();
