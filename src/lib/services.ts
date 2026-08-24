@@ -182,6 +182,14 @@ export async function createSourceConnection(userId: string, sourceId: string, n
   throw new Error('حفظ مفاتيح المصادر يتطلب اتصال Supabase آمن');
 }
 
+export async function updateSourceConnectionCredentials(userId: string, id: string, credentials: Record<string, string>, name?: string): Promise<void> {
+  const existing = await dbGet<SourceConnection>('source_connections', id);
+  if (!existing || existing.user_id !== userId) throw new Error('الاتصال غير موجود');
+  if (!isSupabaseConfigured || !supabase) throw new Error('حفظ مفاتيح المصادر يتطلب اتصال Supabase آمن');
+  const { data, error } = await supabase.functions.invoke('source-connector-proxy-v2', { body: { action: 'update', connection_id: id, credentials, name: name ?? existing.name } });
+  if (error || !data?.success) throw error ?? new Error(data?.error ?? 'تعذر تحديث اتصال المصدر');
+}
+
 export async function updateSourceConnection(userId: string, id: string, updates: Partial<SourceConnection>): Promise<void> {
   const existing = await dbGet<SourceConnection>('source_connections', id);
   if (!existing || existing.user_id !== userId) return;
