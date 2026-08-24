@@ -56,7 +56,7 @@ function providerTarget(provider: string, model: string) {
   if (provider === 'openrouter') return { url: 'https://openrouter.ai/api/v1/chat/completions', model: model || 'openrouter/free' };
   if (provider === 'grok') return { url: 'https://api.x.ai/v1/chat/completions', model: model || 'grok-4.6' };
   if (provider === 'groq') return { url: 'https://api.groq.com/openai/v1/chat/completions', model: model || 'llama-3.3-70b-versatile' };
-  if (provider === 'cerebras') return { url: 'https://api.cerebras.ai/v1/chat/completions', model: model || 'llama-3.3-70b' };
+  if (provider === 'cerebras') return { url: 'https://api.cerebras.ai/v1/chat/completions', model: model && model !== 'llama-3.3-70b' ? model : 'gpt-oss-120b' };
   if (provider === 'mistral') return { url: 'https://api.mistral.ai/v1/chat/completions', model: model || 'mistral-small-latest' };
   if (provider === 'openai') return { url: 'https://api.openai.com/v1/chat/completions', model: model || 'gpt-4o-mini' };
   if (provider === 'anthropic') return { url: 'https://api.anthropic.com/v1/messages', model: model || 'claude-3-5-haiku-latest' };
@@ -118,7 +118,8 @@ Deno.serve(async (request) => {
     if (provider.provider === 'gemini') { delete headers.Authorization; testUrl = `${target.url}?key=${encodeURIComponent(raw)}`; body = { contents: [{ parts: [{ text: 'Reply with OK only.' }] }], generationConfig: { maxOutputTokens: 8 } }; }
     const response = await fetch(testUrl, { method: 'POST', headers, body: JSON.stringify(body) });
     const text = await response.text();
-    return json({ success: response.ok, message: response.ok ? 'تم الاتصال بنجاح' : `فشل الاتصال (${response.status})`, provider: provider.provider, detail: response.ok ? undefined : text.slice(0, 300) }, 200, request);
+    const detail = response.ok ? undefined : text.slice(0, 300);
+    return json({ success: response.ok, message: response.ok ? `تم الاتصال بنجاح عبر ${target.model}` : `فشل الاتصال (${response.status})${detail ? `: ${detail}` : ''}`, provider: provider.provider, detail }, 200, request);
   }
   return json({ error: 'إجراء غير معروف' }, 400, request);
 });

@@ -28,7 +28,7 @@ export function AdminAIProvidersPage() {
     const catalog = [
       { provider: 'openrouter' as AIProviderCode, enabled: true, priority: 1, default_model: 'openrouter/free', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, openrouter_auto_mode: true, model_fallback_chain: [] },
       { provider: 'groq' as AIProviderCode, enabled: false, priority: 2, default_model: 'llama-3.3-70b-versatile', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, base_url: 'https://api.groq.com/openai/v1', model_fallback_chain: ['openai/gpt-oss-120b'] },
-      { provider: 'cerebras' as AIProviderCode, enabled: false, priority: 3, default_model: 'llama-3.3-70b', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, base_url: 'https://api.cerebras.ai/v1', model_fallback_chain: ['qwen-3-32b'] },
+      { provider: 'cerebras' as AIProviderCode, enabled: false, priority: 3, default_model: 'gpt-oss-120b', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, base_url: 'https://api.cerebras.ai/v1', model_fallback_chain: ['gpt-oss-120b'] },
       { provider: 'mistral' as AIProviderCode, enabled: false, priority: 4, default_model: 'mistral-small-latest', fallback_enabled: true, max_requests: 1000, timeout_ms: 30000, retry_count: 3, base_url: 'https://api.mistral.ai/v1', model_fallback_chain: ['mistral-large-latest'] },
     ];
     const byProvider = new Map<AIProviderCode, AdminAIProvider>(loaded.map((item) => [item.provider, item]));
