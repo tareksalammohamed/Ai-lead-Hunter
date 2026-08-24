@@ -161,7 +161,7 @@ export async function setCampaignStatus(userId: string, id: string, status: Camp
 }
 
 // ---- Source Connections ----
-const SAFE_SOURCE_CONNECTION_FIELDS = 'id,user_id,source_id,source_code,external_account_id,name,status,last_tested_at,last_test_result,created_at,updated_at';
+const SAFE_SOURCE_CONNECTION_FIELDS = 'id,user_id,source_id,name,status,last_tested_at,last_test_result,created_at,updated_at';
 
 async function getSourceConnectionMetadata(id: string, userId: string): Promise<SourceConnection | null> {
   if (isSupabaseConfigured && supabase) {
