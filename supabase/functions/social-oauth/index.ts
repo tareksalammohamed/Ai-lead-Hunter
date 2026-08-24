@@ -67,6 +67,10 @@ function encode(bytes: Uint8Array) {
   return btoa(binary);
 }
 
+function decode(value: string) {
+  return Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
+}
+
 function base64Url(bytes: Uint8Array) {
   return encode(bytes).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
@@ -91,6 +95,28 @@ async function encrypt(value: unknown) {
   return `${encode(iv)}.${encode(new Uint8Array(ciphertext))}`;
 }
 
+async function decrypt(value: string) {
+  const [iv, ciphertext] = value.split(".");
+  const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: decode(iv) }, await cryptoKey(), decode(ciphertext));
+  return new TextDecoder().decode(plaintext);
+}
+
+async function getOAuthAppCredentials(provider: Provider) {
+  const { data, error } = await admin
+    .from("admin_oauth_credentials")
+    .select("client_id_encrypted,client_secret_encrypted")
+    .eq("provider", provider)
+    .maybeSingle();
+  if (error) throw error;
+  if (data?.client_id_encrypted && data.client_secret_encrypted) {
+    return { clientId: await decrypt(data.client_id_encrypted), clientSecret: await decrypt(data.client_secret_encrypted) };
+  }
+  const clientId = provider === "linkedin" ? Deno.env.get("LINKEDIN_CLIENT_ID") : Deno.env.get("META_APP_ID");
+  const clientSecret = provider === "linkedin" ? Deno.env.get("LINKEDIN_CLIENT_SECRET") : Deno.env.get("META_APP_SECRET");
+  if (!clientId || !clientSecret) throw new Error(`${provider === "linkedin" ? "LinkedIn" : "Facebook"} OAuth is not configured on the server`);
+  return { clientId, clientSecret };
+}
+
 async function auth(request: Request) {
   const header = request.headers.get("authorization");
   if (!header?.startsWith("Bearer ")) return null;
@@ -103,9 +129,7 @@ function formBody(values: Record<string, string>) {
 }
 
 async function exchangeLinkedIn(code: string, redirectUri: string) {
-  const clientId = Deno.env.get("LINKEDIN_CLIENT_ID");
-  const clientSecret = Deno.env.get("LINKEDIN_CLIENT_SECRET");
-  if (!clientId || !clientSecret) throw new Error("LinkedIn OAuth is not configured on the server");
+  const { clientId, clientSecret } = await getOAuthAppCredentials("linkedin");
   const response = await fetch("https://www.linkedin.com/oauth/v2/accessToken", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -135,9 +159,7 @@ async function exchangeLinkedIn(code: string, redirectUri: string) {
 }
 
 async function exchangeFacebook(code: string, redirectUri: string) {
-  const appId = Deno.env.get("META_APP_ID");
-  const appSecret = Deno.env.get("META_APP_SECRET");
-  if (!appId || !appSecret) throw new Error("Facebook OAuth is not configured on the server");
+  const { clientId: appId, clientSecret: appSecret } = await getOAuthAppCredentials("facebook");
   const tokenUrl = new URL("https://graph.facebook.com/oauth/access_token");
   tokenUrl.search = new URLSearchParams({ client_id: appId, client_secret: appSecret, redirect_uri: redirectUri, code }).toString();
   const shortResponse = await fetch(tokenUrl);
@@ -255,7 +277,7 @@ Deno.serve(async (request) => {
       const authUrl = new URL(provider === "linkedin"
         ? "https://www.linkedin.com/oauth/v2/authorization"
         : "https://www.facebook.com/dialog/oauth");
-      const clientId = provider === "linkedin" ? Deno.env.get("LINKEDIN_CLIENT_ID") : Deno.env.get("META_APP_ID");
+      const { clientId } = await getOAuthAppCredentials(provider);
       const scope = provider === "linkedin"
         ? (Deno.env.get("LINKEDIN_OAUTH_SCOPES") ?? "openid profile email")
         : (Deno.env.get("META_OAUTH_SCOPES") ?? "public_profile,email,pages_show_list");

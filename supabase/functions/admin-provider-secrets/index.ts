@@ -80,6 +80,37 @@ Deno.serve(async (request) => {
   const user = await actor(request, admin); if (!user) return json({ error: 'غير مصرح' }, 403, request);
   const payload = await request.json().catch(() => ({})); const action = String(payload.action ?? 'list');
 
+  if (action === 'oauth_list') {
+    const { data, error } = await admin.from('admin_oauth_credentials').select('provider,client_id_masked,client_secret_masked,updated_at').order('provider');
+    if (error) return json({ error: error.message }, 500, request);
+    return json({ credentials: (data ?? []).map((item) => ({ ...item, has_credentials: Boolean(item.client_id_masked && item.client_secret_masked) })) }, 200, request);
+  }
+
+  if (action === 'oauth_save') {
+    const provider = String(payload.provider ?? '');
+    if (provider !== 'linkedin' && provider !== 'facebook') return json({ error: 'OAuth provider غير مدعوم' }, 400, request);
+    const clientId = String(payload.client_id ?? '').trim();
+    const clientSecret = String(payload.client_secret ?? '').trim();
+    if (clientId.length < 3 || clientSecret.length < 8) return json({ error: 'أدخل Client ID وClient Secret صحيحين' }, 400, request);
+    const idEncrypted = await encryptSecret(clientId, encryptionSecret);
+    const secretEncrypted = await encryptSecret(clientSecret, encryptionSecret);
+    const idMasked = `${clientId.slice(0, 4)}••••${clientId.slice(-3)}`;
+    const secretMasked = `${clientSecret.slice(0, 3)}••••••••${clientSecret.slice(-3)}`;
+    const { error } = await admin.from('admin_oauth_credentials').upsert({ provider, client_id_encrypted: idEncrypted, client_secret_encrypted: secretEncrypted, client_id_masked: idMasked, client_secret_masked: secretMasked, updated_by: user.id, updated_at: new Date().toISOString() });
+    if (error) return json({ error: error.message }, 500, request);
+    await admin.from('audit_logs').insert({ user_id: user.id, action: 'oauth_credentials.saved', entity_type: 'oauth_provider', entity_id: provider, details: { provider, has_client_id: true, has_client_secret: true } });
+    return json({ success: true, provider, client_id_masked: idMasked, client_secret_masked: secretMasked, has_credentials: true }, 200, request);
+  }
+
+  if (action === 'oauth_remove') {
+    const provider = String(payload.provider ?? '');
+    if (provider !== 'linkedin' && provider !== 'facebook') return json({ error: 'OAuth provider غير مدعوم' }, 400, request);
+    const { error } = await admin.from('admin_oauth_credentials').delete().eq('provider', provider);
+    if (error) return json({ error: error.message }, 500, request);
+    await admin.from('audit_logs').insert({ user_id: user.id, action: 'oauth_credentials.removed', entity_type: 'oauth_provider', entity_id: provider, details: { provider } });
+    return json({ success: true, provider, has_credentials: false }, 200, request);
+  }
+
   if (action === 'list') {
     const { data, error } = await admin.from('admin_ai_providers').select('id,provider,enabled,api_key_masked,base_url,priority,default_model,fallback_enabled,max_requests,timeout_ms,retry_count,openrouter_auto_mode,model_fallback_chain,capabilities,cooldown_ms,daily_limit,routing_mode,updated_at').neq('provider', 'gemini').order('priority');
     if (error) return json({ error: error.message }, 500, request);
@@ -100,13 +131,13 @@ Deno.serve(async (request) => {
     if (action === 'search_save') {
       const raw = String(payload.api_key ?? '').trim(); if (raw.length < 8) return json({ error: 'أدخل مفتاح بحث صحيحاً' }, 400, request);
       const masked = `${raw.slice(0, 4)}••••••••${raw.slice(-4)}`;
-      const encrypted = await encryptSecret(raw, secret);
+      const encrypted = await encryptSecret(raw, encryptionSecret);
       const { error } = await admin.from('admin_search_providers').update({ api_key_encrypted: encrypted, api_key_masked: masked, enabled: true, updated_at: new Date().toISOString() }).eq('id', searchProviderId);
       if (error) return json({ error: error.message }, 500, request);
       return json({ success: true, search_provider_id: searchProviderId, api_key_masked: masked }, 200, request);
     }
     if (!searchProvider.api_key_encrypted) return json({ success: false, message: 'لم تتم إضافة مفتاح لهذا المزود' }, 200, request);
-    const raw = await decryptSecret(searchProvider.api_key_encrypted, secret);
+    const raw = await decryptSecret(searchProvider.api_key_encrypted, encryptionSecret);
     let response: Response;
     if (searchProvider.name.toLowerCase() === 'tavily') response = await fetch('https://api.tavily.com/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: raw, query: 'test', max_results: 1 }) });
     else if (searchProvider.name.toLowerCase() === 'serper') response = await fetch('https://google.serper.dev/search', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-KEY': raw }, body: JSON.stringify({ q: 'test' }) });

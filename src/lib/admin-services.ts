@@ -5,7 +5,7 @@
 
 import type {
   AdminUser, RoleDefinition, SystemConfig, ConfigChange,
-  AdminAIProvider, AIModelRouter, AdminSearchProvider, AdminSourceConnector,
+  AdminAIProvider, AdminOAuthCredential, AIModelRouter, AdminSearchProvider, AdminSourceConnector,
   ResearchEngineConfig, AdminScoringConfig, IntentCategory, AdminPhoneRules,
   DuplicateEngineConfig, FeatureFlag, SystemHealthCheck, SecurityEvent,
   AdminNotificationConfig, MaintenanceOperation, Permission, SystemRole,
@@ -481,6 +481,29 @@ export async function testSecureSearchProvider(actorId: string, id: string): Pro
   const { data, error } = await supabase.functions.invoke('admin-provider-secrets', { body: { action: 'search_test', search_provider_id: id } });
   if (error) return { success: false, message: error.message };
   return { success: Boolean(data?.success), message: String(data?.message ?? 'انتهى الاختبار') };
+}
+
+export async function getAdminOAuthCredentials(actorId: string): Promise<AdminOAuthCredential[]> {
+  await requirePermission(actorId, 'manage_sources');
+  if (!supabase) throw new Error('حفظ إعدادات OAuth يحتاج Supabase');
+  const { data, error } = await supabase.functions.invoke('admin-provider-secrets', { body: { action: 'oauth_list' } });
+  if (error) throw error;
+  return (data?.credentials ?? []) as AdminOAuthCredential[];
+}
+
+export async function saveAdminOAuthCredentials(actorId: string, provider: AdminOAuthCredential['provider'], clientId: string, clientSecret: string): Promise<AdminOAuthCredential> {
+  await requirePermission(actorId, 'manage_sources');
+  if (!supabase) throw new Error('حفظ إعدادات OAuth يحتاج Supabase');
+  const { data, error } = await supabase.functions.invoke('admin-provider-secrets', { body: { action: 'oauth_save', provider, client_id: clientId, client_secret: clientSecret } });
+  if (error || !data?.success) throw error ?? new Error(data?.error ?? 'تعذر حفظ إعدادات OAuth');
+  return data as AdminOAuthCredential;
+}
+
+export async function removeAdminOAuthCredentials(actorId: string, provider: AdminOAuthCredential['provider']): Promise<void> {
+  await requirePermission(actorId, 'manage_sources');
+  if (!supabase) throw new Error('حذف إعدادات OAuth يحتاج Supabase');
+  const { error } = await supabase.functions.invoke('admin-provider-secrets', { body: { action: 'oauth_remove', provider } });
+  if (error) throw error;
 }
 
 export async function getAdminSearchProviders(): Promise<AdminSearchProvider[]> {

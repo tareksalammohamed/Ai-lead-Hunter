@@ -554,6 +554,16 @@ export interface AIModelRouter {
   fallback_model: string;
 }
 
+export type OAuthProviderCode = 'linkedin' | 'facebook';
+
+export interface AdminOAuthCredential {
+  provider: OAuthProviderCode;
+  client_id_masked: string;
+  client_secret_masked: string;
+  has_credentials: boolean;
+  updated_at?: string;
+}
+
 export interface AdminSearchProvider {
   id: string;
   name: string;
