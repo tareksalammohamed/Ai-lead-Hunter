@@ -125,6 +125,30 @@ async function run(sourceCode: string, query: Record<string, unknown>, credentia
     if (data.status && data.status !== "OK" && data.status !== "ZERO_RESULTS") throw new Error("Google Maps rejected request");
     return (data.results ?? []).map((item: Record<string, unknown>) => ({ job_id: query.job_id, source_code: sourceCode, source_url: `https://www.google.com/maps/place/?q=place_id:${item.place_id ?? ""}`, data: { name: item.name, business_name: item.name, address: item.formatted_address ?? "", rating: item.rating, reviews_count: item.user_ratings_total, maps_url: `https://www.google.com/maps/place/?q=place_id:${item.place_id ?? ""}`, coordinates: (item.geometry as Record<string, unknown> | undefined)?.location, city: query.location ?? "", source_type: "business_listing" }, normalized: false }));
   }
+  if (sourceCode === "website") {
+    if (query.test === true) return [];
+    const requestedUrl = String(query.query ?? "").trim();
+    let parsed: globalThis.URL;
+    try {
+      parsed = new globalThis.URL(requestedUrl);
+    } catch {
+      throw new Error("Website URL is invalid");
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    const blockedHost = hostname === "localhost" || hostname.endsWith(".local") || hostname === "metadata.google.internal" ||
+      /^(127\.|0\.|10\.|192\.168\.|169\.254\.)/.test(hostname) ||
+      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname) || hostname === "::1";
+    if (!['http:', 'https:'].includes(parsed.protocol) || blockedHost) throw new Error("Website URL is not allowed");
+    const response = await fetch(parsed.toString(), { headers: { "User-Agent": "AI-Lead-Hunter/1.0" }, redirect: "follow" });
+    if (!response.ok) throw new Error(`Website request failed (${response.status})`);
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!/(text\/html|application\/xhtml\+xml|text\/plain)/i.test(contentType)) throw new Error("Website content type is not supported");
+    const body = await response.text();
+    if (body.length > 2_000_000) throw new Error("Website response is too large");
+    const title = body.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || parsed.hostname;
+    const text = body.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, " ").replace(/<style[^>]*>[\s\S]*?<\/style>/gi, " ").replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 10_000);
+    return [{ job_id: query.job_id, source_code: sourceCode, source_url: parsed.toString(), data: { name: title, content: text, source_url: parsed.toString(), city: query.location ?? "", source_type: "website_content" }, normalized: false }];
+  }
   throw new Error("Connector not enabled server-side");
 }
 

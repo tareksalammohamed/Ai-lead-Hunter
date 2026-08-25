@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import {
-  getAdminSearchProviders, updateAdminSearchProvider, testSearchProvider,
+  getSecureSearchProviders, saveSecureSearchProviderKey, testSecureSearchProvider, updateSecureSearchProvider,
   getAdminSourceConnectors, updateSourceConnector, testSourceConnector,
 } from '@/lib/admin-services';
 import type { AdminSearchProvider, AdminSourceConnector } from '@/types';
@@ -23,29 +23,56 @@ export function AdminSearchProvidersPage() {
   const { toast } = useToast();
   const [providers, setProviders] = useState<AdminSearchProvider[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState<Record<string, any>>({});
+  const [editing, setEditing] = useState<Record<string, Partial<AdminSearchProvider>>>({});
+  const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
   const [testing, setTesting] = useState<string | null>(null);
 
-  const loadData = async () => { setLoading(true); setProviders(await getAdminSearchProviders()); setLoading(false); };
-  useEffect(() => { loadData(); }, []);
+  const loadData = async () => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      setProviders(await getSecureSearchProviders(user.id));
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'تعذر تحميل مزودي البحث', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { void loadData(); }, [user?.id]);
 
   const handleSave = async (id: string) => {
     if (!user) return;
-    await updateAdminSearchProvider(user.id, id, editing[id]);
-    toast('تم الحفظ', 'success');
-    setEditing((p) => { const c = { ...p }; delete c[id]; return c; });
-    loadData();
+    const changes = editing[id] ?? {};
+    const key = keyDrafts[id]?.trim();
+    try {
+      if (key) await saveSecureSearchProviderKey(user.id, id, key);
+      const { api_key_masked: _masked, ...config } = changes;
+      if (Object.keys(config).length > 0) await updateSecureSearchProvider(user.id, id, config);
+      toast('تم حفظ إعدادات مزود البحث بأمان', 'success');
+      setEditing((p) => { const c = { ...p }; delete c[id]; return c; });
+      setKeyDrafts((p) => { const c = { ...p }; delete c[id]; return c; });
+      await loadData();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'تعذر حفظ إعدادات مزود البحث', 'error');
+    }
   };
 
   const handleTest = async (id: string) => {
     if (!user) return;
     setTesting(id);
-    const r = await testSearchProvider(user.id, id);
-    toast(r.message, r.success ? 'success' : 'error');
-    setTesting(null);
+    try {
+      const r = await testSecureSearchProvider(user.id, id);
+      toast(r.message, r.success ? 'success' : 'error');
+      await loadData();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'تعذر اختبار مزود البحث', 'error');
+    } finally {
+      setTesting(null);
+    }
   };
 
-  const update = (id: string, field: string, value: any) => setEditing((p) => ({ ...p, [id]: { ...p[id], [field]: value } }));
+  const update = (id: string, field: keyof AdminSearchProvider, value: unknown) => setEditing((p) => ({ ...p, [id]: { ...p[id], [field]: value } }));
+  const updateKey = (id: string, value: string) => setKeyDrafts((p) => ({ ...p, [id]: value }));
 
   if (loading) return <div className="p-6"><Skeleton className="h-64" /></div>;
 
@@ -73,7 +100,7 @@ export function AdminSearchProvidersPage() {
               <Toggle checked={e.enabled ?? p.enabled} onChange={(v) => update(p.id, 'enabled', v)} />
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Input label="API Key" type="password" placeholder={p.api_key_masked || 'أدخل المفتاح'} value={e.api_key_masked ?? ''} onChange={(ev) => update(p.id, 'api_key_masked', ev.target.value)} />
+              <Input label="API Key جديد" type="password" placeholder={p.api_key_masked || 'أدخل المفتاح (لا يظهر بعد الحفظ)'} value={keyDrafts[p.id] ?? ''} onChange={(ev) => updateKey(p.id, ev.target.value)} autoComplete="new-password" />
               <Input label="الأولوية" type="number" value={e.priority ?? p.priority} onChange={(ev) => update(p.id, 'priority', Number(ev.target.value))} />
               <Input label="الحد اليومي" type="number" value={e.daily_limit ?? p.daily_limit} onChange={(ev) => update(p.id, 'daily_limit', Number(ev.target.value))} />
               <Input label="طلبات/دقيقة" type="number" value={e.requests_per_minute ?? p.requests_per_minute} onChange={(ev) => update(p.id, 'requests_per_minute', Number(ev.target.value))} />
@@ -82,7 +109,7 @@ export function AdminSearchProvidersPage() {
             </div>
             <div className="flex gap-2 justify-end mt-4">
               <Button variant="secondary" onClick={() => handleTest(p.id)} disabled={testing === p.id}><Zap className="w-4 h-4" /> اختبار</Button>
-              {Object.keys(e).length > 0 && <Button onClick={() => handleSave(p.id)}><Save className="w-4 h-4" /> حفظ</Button>}
+              {(Object.keys(e).length > 0 || Boolean(keyDrafts[p.id]?.trim())) && <Button onClick={() => handleSave(p.id)}><Save className="w-4 h-4" /> حفظ</Button>}
             </div>
           </Card>
         );

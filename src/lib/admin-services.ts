@@ -483,6 +483,15 @@ export async function testSecureSearchProvider(actorId: string, id: string): Pro
   return { success: Boolean(data?.success), message: String(data?.message ?? 'انتهى الاختبار') };
 }
 
+export async function updateSecureSearchProvider(actorId: string, id: string, updates: Partial<AdminSearchProvider>): Promise<void> {
+  await requirePermission(actorId, 'manage_sources');
+  if (!supabase) throw new Error('تحديث إعدادات البحث يحتاج Supabase');
+  const { data, error } = await supabase.functions.invoke('admin-provider-secrets', {
+    body: { action: 'search_update', search_provider_id: id, updates },
+  });
+  if (error || !data?.success) throw error ?? new Error(data?.error ?? 'تعذر تحديث إعدادات مزود البحث');
+}
+
 export async function getAdminOAuthCredentials(actorId: string): Promise<AdminOAuthCredential[]> {
   await requirePermission(actorId, 'manage_sources');
   if (!supabase) throw new Error('حفظ إعدادات OAuth يحتاج Supabase');

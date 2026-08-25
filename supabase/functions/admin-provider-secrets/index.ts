@@ -123,6 +123,30 @@ Deno.serve(async (request) => {
     return json({ providers: data ?? [] }, 200, request);
   }
 
+  if (action === 'search_update') {
+    const searchProviderId = String(payload.search_provider_id ?? '');
+    if (!searchProviderId) return json({ error: 'search_provider_id مطلوب' }, 400, request);
+    const patch: Record<string, boolean | number> = {};
+    const updates = payload.updates && typeof payload.updates === 'object' ? payload.updates as Record<string, unknown> : {};
+    if (typeof updates.enabled === 'boolean') patch.enabled = updates.enabled;
+    if (typeof updates.fallback_enabled === 'boolean') patch.fallback_enabled = updates.fallback_enabled;
+    for (const field of ['priority', 'daily_limit', 'requests_per_minute', 'timeout_ms']) {
+      const value = updates[field];
+      if (value !== undefined) {
+        const numeric = Number(value);
+        if (!Number.isInteger(numeric) || numeric < 0) return json({ error: `قيمة ${field} غير صحيحة` }, 400, request);
+        patch[field] = numeric;
+      }
+    }
+    if (Object.keys(patch).length === 0) return json({ success: true }, 200, request);
+    const { data: existing } = await admin.from('admin_search_providers').select('id').eq('id', searchProviderId).maybeSingle();
+    if (!existing) return json({ error: 'مزود البحث غير موجود' }, 404, request);
+    const { error } = await admin.from('admin_search_providers').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', searchProviderId);
+    if (error) return json({ error: error.message }, 500, request);
+    await admin.from('audit_logs').insert({ user_id: user.id, action: 'search_provider.updated', entity_type: 'search_provider', entity_id: searchProviderId, details: patch });
+    return json({ success: true, search_provider_id: searchProviderId }, 200, request);
+  }
+
   if (action === 'search_save' || action === 'search_test') {
     const searchProviderId = String(payload.search_provider_id ?? '');
     if (!searchProviderId) return json({ error: 'search_provider_id مطلوب' }, 400, request);
