@@ -626,8 +626,10 @@ export async function executeJob(
           return src?.code === sq.source;
         });
         let result: ConnectorResult;
-        if (isSupabaseConfigured && supabase && conn) {
-          const { data, error } = await supabase.functions.invoke('source-connector-proxy-v2', { body: { action: 'search', connection_id: conn.id, job_id: jobId, query: sq } });
+        if (isSupabaseConfigured && supabase && (conn || sq.source === 'web_search')) {
+          const { data, error } = await supabase.functions.invoke('source-connector-proxy-v2', {
+            body: { action: 'search', ...(conn ? { connection_id: conn.id } : { source_code: sq.source }), job_id: jobId, query: sq },
+          });
           result = error ? { rawRecords: [], error: error.message } : { rawRecords: (data?.records ?? []) as ConnectorResult['rawRecords'] };
         } else {
           result = { rawRecords: [], error: 'اتصال المصدر غير متاح' };

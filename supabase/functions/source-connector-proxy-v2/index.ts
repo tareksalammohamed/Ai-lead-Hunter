@@ -4,6 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 const URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const SECRET = Deno.env.get("SOURCE_CONNECTION_SECRET") ?? Deno.env.get("AI_PROVIDER_ENCRYPTION_KEY") ?? SERVICE_KEY;
+const AI_SECRET = Deno.env.get("AI_PROVIDER_ENCRYPTION_KEY") ?? SERVICE_KEY;
 const DEFAULT_ORIGINS = ["https://ai-lead-hunter-zeta.vercel.app", "https://aileadhunter.vercel.app"];
 const admin = createClient(URL, SERVICE_KEY);
 
@@ -22,8 +23,8 @@ function cors(request: Request) {
 function json(body: unknown, status: number, request: Request) { return new Response(JSON.stringify(body), { status, headers: cors(request) }); }
 function encode(bytes: Uint8Array) { let value = ""; for (const byte of bytes) value += String.fromCharCode(byte); return btoa(value); }
 function decode(value: string) { return Uint8Array.from(atob(value), (char) => char.charCodeAt(0)); }
-async function cryptoKey() {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(SECRET));
+async function cryptoKey(secret = SECRET) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
   return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 }
 async function encrypt(value: unknown) {
@@ -31,10 +32,13 @@ async function encrypt(value: unknown) {
   const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await cryptoKey(), new TextEncoder().encode(JSON.stringify(value)));
   return `${encode(iv)}.${encode(new Uint8Array(ciphertext))}`;
 }
-async function decrypt(value: string) {
+async function decryptText(value: string, secret = SECRET) {
   const [iv, ciphertext] = value.split(".");
-  const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: decode(iv) }, await cryptoKey(), decode(ciphertext));
-  return JSON.parse(new TextDecoder().decode(plaintext)) as Record<string, string>;
+  const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: decode(iv) }, await cryptoKey(secret), decode(ciphertext));
+  return new TextDecoder().decode(plaintext);
+}
+async function decrypt(value: string) {
+  return JSON.parse(await decryptText(value)) as Record<string, string>;
 }
 async function auth(request: Request) {
   const header = request.headers.get("authorization");
@@ -46,6 +50,17 @@ async function connection(id: string, userId: string) {
   const { data, error } = await admin.from("source_connections").select("id,user_id,source_id,source_code,name,credentials_encrypted").eq("id", id).eq("user_id", userId).maybeSingle();
   if (error) throw error;
   return data;
+}
+async function centralWebSearchCredentials() {
+  const { data, error } = await admin.from("admin_search_providers").select("name,enabled,api_key_encrypted").eq("name", "Tavily").maybeSingle();
+  if (error) throw error;
+  if (!data?.enabled || !data.api_key_encrypted) return null;
+  try {
+    const apiKey = (await decryptText(data.api_key_encrypted, AI_SECRET)).trim();
+    return apiKey ? { api_key: apiKey } : null;
+  } catch {
+    return null;
+  }
 }
 async function linkedInRequest(token: string) {
   const headers = { Authorization: `Bearer ${token}` };
@@ -170,19 +185,24 @@ Deno.serve(async (request) => {
       return json({ success: true, connection_id: id }, 200, request);
     }
     const id = String(payload.connection_id ?? "");
-    if (!id) return json({ error: "connection_id required" }, 400, request);
-    const current = await connection(id, user.id);
-    if (!current) return json({ error: "Connection not found" }, 404, request);
-    if (!current.credentials_encrypted) return json({ error: "Connection secret must be migrated" }, 409, request);
-    const credentials = await decrypt(current.credentials_encrypted);
+    const current = id ? await connection(id, user.id) : null;
+    if (id && !current) return json({ error: "Connection not found" }, 404, request);
+    const sourceCode = String(current?.source_code ?? payload.source_code ?? "");
+    let credentials: Record<string, string> | null = null;
+    if (current?.credentials_encrypted) credentials = await decrypt(current.credentials_encrypted);
+    if (action === "search") {
+      if (!sourceCode) return json({ error: "source_code required" }, 400, request);
+      if (!credentials?.api_key && sourceCode === "web_search") credentials = await centralWebSearchCredentials();
+      if (!credentials) return json({ error: "Search API key missing" }, 503, request);
+      const records = await run(sourceCode, { ...(payload.query ?? {}), job_id: payload.job_id }, credentials);
+      return json({ records }, 200, request);
+    }
+    if (!current || !id) return json({ error: "connection_id required" }, 400, request);
+    if (!credentials) return json({ error: "Connection secret must be migrated" }, 409, request);
     if (action === "test") {
-      await run(String(current.source_code ?? ""), { test: true, query: "test" }, credentials);
+      await run(sourceCode, { test: true, query: "test" }, credentials);
       await admin.from("source_connections").update({ status: "connected", last_tested_at: new Date().toISOString(), last_test_result: "Connection verified", updated_at: new Date().toISOString() }).eq("id", id).eq("user_id", user.id);
       return json({ success: true, message: "Connection verified" }, 200, request);
-    }
-    if (action === "search") {
-      const records = await run(String(current.source_code ?? ""), { ...(payload.query ?? {}), job_id: payload.job_id }, credentials);
-      return json({ records }, 200, request);
     }
     if (action === "update") {
       const encrypted = await encrypt(payload.credentials ?? {});

@@ -102,6 +102,12 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
 
   const handleCreateConnection = async () => {
     if (!user || !connSource || !connName) return;
+    const selectedSource = sources.find((s) => s.id === connSource);
+    if (selectedSource?.code === 'web_search') {
+      toast('Web Search يُدار مركزيًا من Super Admin؛ لا تحتاج لإضافة اتصال مستخدم.', 'success');
+      setShowConnModal(false); setConnSource(''); setConnName(''); setConnCreds({});
+      return;
+    }
     try {
       await createSourceConnection(user.id, connSource, connName, connCreds);
       toast('تم إضافة الاتصال', 'success');
@@ -270,7 +276,7 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
                 <h3 className="font-bold" style={{ color: 'rgb(var(--text-primary))' }}>اتصالات المصادر</h3>
                 <Button onClick={() => setShowConnModal(true)}><Plus className="w-4 h-4" /> إضافة اتصال</Button>
               </div>
-              <p className="text-sm" style={{ color: 'rgb(var(--text-muted))' }}>اربط حساباتك مع مصادر البحث. يتم تخزين البيانات بشكل آمن.</p>
+              <p className="text-sm" style={{ color: 'rgb(var(--text-muted))' }}>اربط حساباتك مع مصادر البحث. مفاتيح Web Search المركزية تُدار من لوحة Super Admin، ويمكن استخدام اتصال مستخدم كـOverride اختياري.</p>
               {connections.length === 0 ? (
                 <div className="text-center py-8">
                   <Plug className="w-12 h-12 mx-auto mb-3" style={{ color: 'rgb(var(--text-muted))' }} />
@@ -288,10 +294,11 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
                           </div>
                           <div>
                             <p className="text-sm font-semibold" style={{ color: 'rgb(var(--text-primary))' }}>{c.name}</p>
-                            <p className="text-xs" style={{ color: 'rgb(var(--text-muted))' }}>{src?.name ?? 'مصدر'} · {c.last_test_result ?? 'لم يتم الاختبار'}</p>
+                            <p className="text-xs" style={{ color: 'rgb(var(--text-muted))' }}>{src?.name ?? 'مصدر'}{src?.code === 'web_search' ? ' · Override اختياري' : ''} · {c.last_test_result ?? 'لم يتم الاختبار'}</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
+                          {src?.code === 'web_search' && <Badge>Override</Badge>}
                           {c.status === 'connected' && <Badge variant="success"><CheckCircle2 className="w-3 h-3" /> متصل</Badge>}
                           {c.status === 'error' && <Badge variant="danger"><XCircle className="w-3 h-3" /> خطأ</Badge>}
                           {c.status === 'untested' && <Badge>غير مختبر</Badge>}
@@ -399,6 +406,13 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
             {connSource && (() => {
               const src = sources.find((s) => s.id === connSource);
               if (!src) return null;
+              if (src.code === 'web_search') {
+                return (
+                  <div className="rounded-xl p-3 text-sm" style={{ background: 'rgb(var(--accent-soft))', color: 'rgb(var(--text-secondary))' }}>
+                    مفتاح Tavily الأساسي يُدار بأمان من <strong>Super Admin &gt; مركز الذكاء والتكاملات</strong>، وتستخدمه الحملات تلقائيًا. لا تحتاج لإضافة اتصال Web Search هنا؛ اتصال المستخدم الموجود يُعامل كـOverride اختياري فقط للحساب الحالي.
+                  </div>
+                );
+              }
               if (src.auth_type === 'oauth' && (src.code === 'linkedin' || src.code === 'facebook')) {
                 const providerLabel = src.code === 'linkedin' ? 'LinkedIn' : 'Facebook';
                 return (
@@ -425,7 +439,7 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
               <Button variant="secondary" onClick={() => setShowConnModal(false)}>إلغاء</Button>
               {(() => {
                 const src = sources.find((s) => s.id === connSource);
-                return src?.auth_type !== 'oauth' ? <Button onClick={handleCreateConnection}>إضافة</Button> : null;
+                return src?.auth_type !== 'oauth' && src?.code !== 'web_search' ? <Button onClick={handleCreateConnection}>إضافة</Button> : null;
               })()}
             </div>
           </div>
