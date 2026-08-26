@@ -59,6 +59,7 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
   const [testing, setTesting] = useState<string | null>(null);
   const [oauthConnecting, setOAuthConnecting] = useState<'linkedin' | 'facebook' | null>(null);
   const [oauthAuthorizationUrl, setOAuthAuthorizationUrl] = useState<string | null>(null);
+  const [oauthLinkCopied, setOAuthLinkCopied] = useState(false);
 
   // AI Providers
   const [aiProviders, setAIProviders] = useState<AIProvider[]>([]);
@@ -122,6 +123,7 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
   const handleOAuthConnect = async (provider: 'linkedin' | 'facebook') => {
     setOAuthConnecting(provider);
     setOAuthAuthorizationUrl(null);
+    setOAuthLinkCopied(false);
     let timeoutId: number | undefined;
     try {
       const result = await new Promise<Awaited<ReturnType<typeof startOAuthConnection>>>((resolve, reject) => {
@@ -291,7 +293,7 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
             <Card className="p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="font-bold" style={{ color: 'rgb(var(--text-primary))' }}>اتصالات المصادر</h3>
-                <Button onClick={() => { setShowConnModal(true); setOAuthAuthorizationUrl(null); setOAuthConnecting(null); }}><Plus className="w-4 h-4" /> إضافة اتصال</Button>
+                <Button onClick={() => { setShowConnModal(true); setOAuthAuthorizationUrl(null); setOAuthLinkCopied(false); setOAuthConnecting(null); }}><Plus className="w-4 h-4" /> إضافة اتصال</Button>
               </div>
               <p className="text-sm" style={{ color: 'rgb(var(--text-muted))' }}>اربط حساباتك مع مصادر البحث. مفاتيح Web Search المركزية تُدار من لوحة Super Admin، ويمكن استخدام اتصال مستخدم كـOverride اختياري.</p>
               {connections.length === 0 ? (
@@ -413,9 +415,9 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
 
       {/* Connection Modal */}
       {showConnModal && (
-        <Modal open={true} onClose={() => { setShowConnModal(false); setOAuthAuthorizationUrl(null); setOAuthConnecting(null); }} title="إضافة اتصال مصدر">
+        <Modal open={true} onClose={() => { setShowConnModal(false); setOAuthAuthorizationUrl(null); setOAuthLinkCopied(false); setOAuthConnecting(null); }} title="إضافة اتصال مصدر">
           <div className="space-y-4">
-            <Select label="المصدر" value={connSource} onChange={(e) => { setConnSource(e.target.value); setOAuthAuthorizationUrl(null); setOAuthConnecting(null); }}>
+            <Select label="المصدر" value={connSource} onChange={(e) => { setConnSource(e.target.value); setOAuthAuthorizationUrl(null); setOAuthLinkCopied(false); setOAuthConnecting(null); }}>
               <option value="">اختر مصدراً</option>
               {sources.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </Select>
@@ -445,15 +447,43 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
                       تجهيز رابط {providerLabel}
                     </Button>
                     {oauthAuthorizationUrl && oauthAuthorizationUrl.includes(`${providerLabel.toLowerCase()}.com`) && (
-                      <a
-                        href={oauthAuthorizationUrl}
-                        target="_self"
-                        rel="noopener noreferrer"
-                        className="btn btn-primary w-full inline-flex items-center justify-center gap-2"
-                      >
-                        <Plug className="w-4 h-4" />
-                        فتح {providerLabel} وإكمال الربط
-                      </a>
+                      <div className="space-y-2">
+                        <Button
+                          type="button"
+                          className="w-full"
+                          onClick={() => {
+                            const opened = window.open(oauthAuthorizationUrl, '_blank', 'noopener,noreferrer');
+                            if (!opened) window.location.assign(oauthAuthorizationUrl);
+                          }}
+                        >
+                          <Plug className="w-4 h-4" />
+                          فتح {providerLabel} في المتصفح الخارجي
+                        </Button>
+                        <a
+                          href={oauthAuthorizationUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn btn-secondary w-full inline-flex items-center justify-center gap-2"
+                        >
+                          فتح الرابط مباشرة
+                        </a>
+                        <button
+                          type="button"
+                          className="w-full text-xs underline"
+                          style={{ color: 'rgb(var(--text-muted))' }}
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(oauthAuthorizationUrl);
+                              setOAuthLinkCopied(true);
+                              toast('تم نسخ رابط Facebook؛ الصقه في Chrome إذا منع الهاتف الفتح.', 'success');
+                            } catch {
+                              toast('لم يسمح الهاتف بنسخ الرابط؛ استخدم زر الفتح المباشر.', 'error');
+                            }
+                          }}
+                        >
+                          {oauthLinkCopied ? 'تم نسخ الرابط' : 'نسخ الرابط كحل احتياطي'}
+                        </button>
+                      </div>
                     )}
                   </div>
                 );
@@ -464,7 +494,7 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
               ));
             })()}
             <div className="flex gap-2 justify-end">
-              <Button variant="secondary" onClick={() => { setShowConnModal(false); setOAuthAuthorizationUrl(null); setOAuthConnecting(null); }}>إلغاء</Button>
+              <Button variant="secondary" onClick={() => { setShowConnModal(false); setOAuthAuthorizationUrl(null); setOAuthLinkCopied(false); setOAuthConnecting(null); }}>إلغاء</Button>
               {(() => {
                 const src = sources.find((s) => s.id === connSource);
                 return src?.auth_type !== 'oauth' && src?.code !== 'web_search' ? <Button onClick={handleCreateConnection}>إضافة</Button> : null;
