@@ -120,12 +120,27 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
 
   const handleOAuthConnect = async (provider: 'linkedin' | 'facebook') => {
     setOAuthConnecting(provider);
+    let timeoutId: number | undefined;
     try {
-      const result = await startOAuthConnection(provider);
-      window.location.assign(result.authorization_url);
+      const result = await new Promise<Awaited<ReturnType<typeof startOAuthConnection>>>((resolve, reject) => {
+        timeoutId = window.setTimeout(() => reject(new Error(`استغرق الاتصال بـ ${provider === 'facebook' ? 'Facebook' : 'LinkedIn'} وقتًا أطول من المتوقع. تحقق من اتصال الإنترنت ثم أعد المحاولة.`)), 20000);
+        startOAuthConnection(provider).then(resolve, reject);
+      });
+      const authorizationUrl = new URL(result.authorization_url);
+      const trustedHost = provider === 'facebook' ? 'facebook.com' : 'linkedin.com';
+      const isTrustedHost = authorizationUrl.protocol === 'https:'
+        && (authorizationUrl.hostname === trustedHost || authorizationUrl.hostname.endsWith(`.${trustedHost}`));
+      if (!isTrustedHost) throw new Error('رابط OAuth غير موثوق؛ تم إيقاف التحويل حفاظًا على أمان الحساب.');
+
+      // Close the modal before navigation so mobile browsers do not keep a stale overlay.
+      setShowConnModal(false);
+      // Replace the current page directly; this works in mobile Chrome and installed PWA contexts.
+      window.location.replace(authorizationUrl.toString());
     } catch (error) {
-      setOAuthConnecting(null);
       toast(error instanceof Error ? error.message : 'تعذر بدء ربط الحساب', 'error');
+    } finally {
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      setOAuthConnecting(null);
     }
   };
 

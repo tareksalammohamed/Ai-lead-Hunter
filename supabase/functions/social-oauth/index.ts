@@ -5,7 +5,11 @@ type Credentials = Record<string, string | number | undefined>;
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const ENCRYPTION_SECRET = Deno.env.get("SOURCE_CONNECTION_SECRET") ?? Deno.env.get("AI_PROVIDER_ENCRYPTION_KEY") ?? "";
+// admin-provider-secrets encrypts OAuth app credentials with AI_PROVIDER_ENCRYPTION_KEY.
+// Source connection tokens use SOURCE_CONNECTION_SECRET, with the same compatibility fallbacks
+// as source-connector-proxy-v2. Both values remain server-only.
+const OAUTH_CONFIG_ENCRYPTION_SECRET = Deno.env.get("AI_PROVIDER_ENCRYPTION_KEY") ?? SERVICE_ROLE_KEY;
+const SOURCE_CREDENTIAL_ENCRYPTION_SECRET = Deno.env.get("SOURCE_CONNECTION_SECRET") ?? Deno.env.get("AI_PROVIDER_ENCRYPTION_KEY") ?? SERVICE_ROLE_KEY;
 const DEFAULT_ORIGINS = [
   "https://ai-lead-hunter-zeta.vercel.app",
   "https://aileadhunter.vercel.app",
@@ -79,25 +83,25 @@ async function sha256(value: string) {
   return base64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))));
 }
 
-async function cryptoKey() {
-  if (!ENCRYPTION_SECRET) throw new Error("SOURCE_CONNECTION_SECRET is not configured");
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(ENCRYPTION_SECRET));
+async function cryptoKey(secret: string) {
+  if (!secret) throw new Error("Encryption secret is not configured");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
   return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 }
 
-async function encrypt(value: unknown) {
+async function encrypt(value: unknown, secret = SOURCE_CREDENTIAL_ENCRYPTION_SECRET) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ciphertext = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
-    await cryptoKey(),
+    await cryptoKey(secret),
     new TextEncoder().encode(JSON.stringify(value)),
   );
   return `${encode(iv)}.${encode(new Uint8Array(ciphertext))}`;
 }
 
-async function decrypt(value: string) {
+async function decrypt(value: string, secret = SOURCE_CREDENTIAL_ENCRYPTION_SECRET) {
   const [iv, ciphertext] = value.split(".");
-  const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: decode(iv) }, await cryptoKey(), decode(ciphertext));
+  const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: decode(iv) }, await cryptoKey(secret), decode(ciphertext));
   return new TextDecoder().decode(plaintext);
 }
 
@@ -109,7 +113,10 @@ async function getOAuthAppCredentials(provider: Provider) {
     .maybeSingle();
   if (error) throw error;
   if (data?.client_id_encrypted && data.client_secret_encrypted) {
-    return { clientId: await decrypt(data.client_id_encrypted), clientSecret: await decrypt(data.client_secret_encrypted) };
+    return {
+      clientId: await decrypt(data.client_id_encrypted, OAUTH_CONFIG_ENCRYPTION_SECRET),
+      clientSecret: await decrypt(data.client_secret_encrypted, OAUTH_CONFIG_ENCRYPTION_SECRET),
+    };
   }
   const clientId = provider === "linkedin" ? Deno.env.get("LINKEDIN_CLIENT_ID") : Deno.env.get("META_APP_ID");
   const clientSecret = provider === "linkedin" ? Deno.env.get("LINKEDIN_CLIENT_SECRET") : Deno.env.get("META_APP_SECRET");
@@ -251,7 +258,9 @@ async function saveConnection(provider: Provider, userId: string, result: Awaite
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(request) });
   if (request.method !== "POST") return json({ error: "Method not allowed" }, 405, request);
-  if (!SUPABASE_URL || !SERVICE_ROLE_KEY || !ENCRYPTION_SECRET) return json({ error: "Server configuration missing" }, 500, request);
+  if (!SUPABASE_URL || !SERVICE_ROLE_KEY || !OAUTH_CONFIG_ENCRYPTION_SECRET || !SOURCE_CREDENTIAL_ENCRYPTION_SECRET) {
+    return json({ error: "Server configuration missing" }, 500, request);
+  }
   const user = await auth(request);
   if (!user) return json({ error: "Unauthorized" }, 401, request);
 
