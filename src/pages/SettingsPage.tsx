@@ -58,6 +58,7 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
   const [connCreds, setConnCreds] = useState<Record<string, string>>({});
   const [testing, setTesting] = useState<string | null>(null);
   const [oauthConnecting, setOAuthConnecting] = useState<'linkedin' | 'facebook' | null>(null);
+  const [oauthAuthorizationUrl, setOAuthAuthorizationUrl] = useState<string | null>(null);
 
   // AI Providers
   const [aiProviders, setAIProviders] = useState<AIProvider[]>([]);
@@ -120,6 +121,7 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
 
   const handleOAuthConnect = async (provider: 'linkedin' | 'facebook') => {
     setOAuthConnecting(provider);
+    setOAuthAuthorizationUrl(null);
     let timeoutId: number | undefined;
     try {
       const result = await new Promise<Awaited<ReturnType<typeof startOAuthConnection>>>((resolve, reject) => {
@@ -132,10 +134,10 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
         && (authorizationUrl.hostname === trustedHost || authorizationUrl.hostname.endsWith(`.${trustedHost}`));
       if (!isTrustedHost) throw new Error('رابط OAuth غير موثوق؛ تم إيقاف التحويل حفاظًا على أمان الحساب.');
 
-      // Close the modal before navigation so mobile browsers do not keep a stale overlay.
-      setShowConnModal(false);
-      // Replace the current page directly; this works in mobile Chrome and installed PWA contexts.
-      window.location.replace(authorizationUrl.toString());
+      // Mobile Chrome/PWA may block JavaScript navigation after an awaited request.
+      // Keep the modal open and expose a real HTTPS anchor for a direct user tap.
+      setOAuthAuthorizationUrl(authorizationUrl.toString());
+      toast(`تم تجهيز رابط ${provider === 'facebook' ? 'Facebook' : 'LinkedIn'}، اضغط الزر للمتابعة.`, 'success');
     } catch (error) {
       toast(error instanceof Error ? error.message : 'تعذر بدء ربط الحساب', 'error');
     } finally {
@@ -289,7 +291,7 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
             <Card className="p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="font-bold" style={{ color: 'rgb(var(--text-primary))' }}>اتصالات المصادر</h3>
-                <Button onClick={() => setShowConnModal(true)}><Plus className="w-4 h-4" /> إضافة اتصال</Button>
+                <Button onClick={() => { setShowConnModal(true); setOAuthAuthorizationUrl(null); setOAuthConnecting(null); }}><Plus className="w-4 h-4" /> إضافة اتصال</Button>
               </div>
               <p className="text-sm" style={{ color: 'rgb(var(--text-muted))' }}>اربط حساباتك مع مصادر البحث. مفاتيح Web Search المركزية تُدار من لوحة Super Admin، ويمكن استخدام اتصال مستخدم كـOverride اختياري.</p>
               {connections.length === 0 ? (
@@ -411,9 +413,9 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
 
       {/* Connection Modal */}
       {showConnModal && (
-        <Modal open={true} onClose={() => setShowConnModal(false)} title="إضافة اتصال مصدر">
+        <Modal open={true} onClose={() => { setShowConnModal(false); setOAuthAuthorizationUrl(null); setOAuthConnecting(null); }} title="إضافة اتصال مصدر">
           <div className="space-y-4">
-            <Select label="المصدر" value={connSource} onChange={(e) => setConnSource(e.target.value)}>
+            <Select label="المصدر" value={connSource} onChange={(e) => { setConnSource(e.target.value); setOAuthAuthorizationUrl(null); setOAuthConnecting(null); }}>
               <option value="">اختر مصدراً</option>
               {sources.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </Select>
@@ -440,8 +442,19 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
                     </div>
                     <Button onClick={() => handleOAuthConnect(src.code as 'linkedin' | 'facebook')} disabled={oauthConnecting !== null}>
                       {oauthConnecting === src.code ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plug className="w-4 h-4" />}
-                      ربط حساب {providerLabel} عبر OAuth
+                      تجهيز رابط {providerLabel}
                     </Button>
+                    {oauthAuthorizationUrl && oauthAuthorizationUrl.includes(`${providerLabel.toLowerCase()}.com`) && (
+                      <a
+                        href={oauthAuthorizationUrl}
+                        target="_self"
+                        rel="noopener noreferrer"
+                        className="btn btn-primary w-full inline-flex items-center justify-center gap-2"
+                      >
+                        <Plug className="w-4 h-4" />
+                        فتح {providerLabel} وإكمال الربط
+                      </a>
+                    )}
                   </div>
                 );
               }
@@ -451,7 +464,7 @@ export function SettingsPage({ onEnterAdmin }: { onEnterAdmin?: () => void } = {
               ));
             })()}
             <div className="flex gap-2 justify-end">
-              <Button variant="secondary" onClick={() => setShowConnModal(false)}>إلغاء</Button>
+              <Button variant="secondary" onClick={() => { setShowConnModal(false); setOAuthAuthorizationUrl(null); setOAuthConnecting(null); }}>إلغاء</Button>
               {(() => {
                 const src = sources.find((s) => s.id === connSource);
                 return src?.auth_type !== 'oauth' && src?.code !== 'web_search' ? <Button onClick={handleCreateConnection}>إضافة</Button> : null;
